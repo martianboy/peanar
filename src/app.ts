@@ -36,7 +36,7 @@ export interface IPeanarJob extends IPeanarJobDefinition, IPeanarRequest {
   deliveryTag: bigint;
 }
 
-interface IPeanarOptions {
+export interface IPeanarOptions {
   connection?: IConnectionParams;
   jobClass: typeof PeanarJob;
   logger?(...args: any[]): any;
@@ -60,7 +60,7 @@ export default class PeanarApp {
     this.log = options.logger || console.log.bind(console);
   }
 
-  private async _ensureConnected() {
+  protected async _ensureConnected() {
     this.log('Peanar: ensureConnected()')
 
     if (this.broker.channel) return this.broker.channel
@@ -74,7 +74,7 @@ export default class PeanarApp {
     await this.broker.shutdown()
   }
 
-  private _registerJob(fn: (...args: any[]) => Promise<any>, def: IPeanarJobDefinitionInput) {
+  protected _registerJob(fn: (...args: any[]) => Promise<any>, def: IPeanarJobDefinitionInput) {
     this.log(`Peanar: _registerJob('${def.queue}', ${JSON.stringify(def, null, 2)})`)
     
     const job_def: IPeanarJobDefinition = {
@@ -101,7 +101,7 @@ export default class PeanarApp {
     return job_def
   }
 
-  getJobDefinition(queue: string, name: string): IPeanarJobDefinition | undefined {
+  public getJobDefinition(queue: string, name: string): IPeanarJobDefinition | undefined {
     const queue_mapping = this.registry.get(queue)
     
     if (!queue_mapping) return
@@ -109,7 +109,7 @@ export default class PeanarApp {
     return queue_mapping.get(name)
   }
 
-  async _enqueueJob(def: Omit<IPeanarJobDefinition, 'handler'>, req: IPeanarRequest) {
+  protected async _enqueueJob(def: Omit<IPeanarJobDefinition, 'handler'>, req: IPeanarRequest) {
     this.log(`Peanar: _enqueueJob(${JSON.stringify(def, null, 2)}, ${JSON.stringify(req)})`)
 
     const channel = await this._ensureConnected()
@@ -132,7 +132,7 @@ export default class PeanarApp {
     return req.id
   }
 
-  private _prepareJobRequest(name: string, args: any[]): IPeanarRequest {
+  protected _prepareJobRequest(name: string, args: any[]): IPeanarRequest {
     return {
       id: uuid.v4(),
       name,
@@ -161,7 +161,7 @@ export default class PeanarApp {
     return enqueueJob;
   }
 
-  private async _startWorker(queue: string) {
+  protected async _startWorker(queue: string) {
     const channel = await this._ensureConnected();
     await this.broker.declareQueue(queue);
 
@@ -172,7 +172,7 @@ export default class PeanarApp {
       .pipe(new Worker(this));
   }
 
-  async worker(options: IWorkerOptions) {
+  public async worker(options: IWorkerOptions) {
     const { queues, concurrency } = options;
 
     await this._ensureConnected();
