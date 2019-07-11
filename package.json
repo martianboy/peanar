@@ -1,0 +1,35 @@
+{
+  "name": "peanar",
+  "version": "0.1.0",
+  "description": "A job queue for Node.js based on RabbitMQ",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "npm test",
+    "prepublishOnly": "npx tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/martianboy/peanar.git"
+  },
+  "keywords": [
+    "rabbitmq",
+    "job-queue",
+    "background-jobs",
+    "worker-queue"
+  ],
+  "author": "Abbas Mashayekh",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/martianboy/peanar/issues"
+  },
+  "homepage": "https://github.com/martianboy/peanar#readme",
+  "devDependencies": {
+    "@types/uuid": "^3.4.5",
+    "eslint": "^6.0.1",
+    "typescript": "^3.5.3"
+  },
+  "dependencies": {
+    "ts-amqp": "^0.2.0",
+    "uuid": "^3.3.2"
+  }
+}
