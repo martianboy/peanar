@@ -11,6 +11,9 @@
     "type": "git",
     "url": "git+https://github.com/martianboy/peanar.git"
   },
+  "files": [
+    "dist"
+  ],
   "keywords": [
     "rabbitmq",
     "job-queue",
