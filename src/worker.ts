@@ -2,6 +2,16 @@ import { Transform, TransformCallback } from "stream";
 import PeanarApp from "./app";
 import PeanarJob from "./job";
 
+export type IWorkerResult = {
+  status: 'SUCCESS';
+  job: PeanarJob;
+  result: unknown;
+} | {
+  status: 'FAILURE';
+  job: PeanarJob;
+  error: unknown;
+}
+
 let counter = 0;
 
 export default class PeanarWorker extends Transform {
@@ -26,12 +36,14 @@ export default class PeanarWorker extends Transform {
 
       this.push({
         status: 'SUCCESS',
+        job,
         result
       })
     } catch (ex) {
       this.push({
         status: 'FAILURE',
-        ex
+        job,
+        err: ex
       })
     } finally {
       job.ack()

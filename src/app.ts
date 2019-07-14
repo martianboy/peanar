@@ -3,9 +3,10 @@ import uuid from 'uuid';
 import { PeanarInternalError } from './exceptions';
 import Broker from './broker';
 import Consumer from './consumer';
-import Worker from './worker';
+import Worker, { IWorkerResult } from './worker';
 import PeanarJob from './job';
 import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
+import { Writable, TransformCallback } from 'stream';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -36,6 +37,14 @@ export interface IPeanarJob extends IPeanarJobDefinition, IPeanarRequest {
   deliveryTag: bigint;
 }
 
+export interface IPeanarResponse {
+  id: string;
+  name: string;
+  status: 'SUCCESS' | 'FAILURE';
+  error?: unknown;
+  result?: unknown;
+}
+
 export interface IPeanarOptions {
   connection?: IConnectionParams;
   jobClass: typeof PeanarJob;
@@ -45,6 +54,7 @@ export interface IPeanarOptions {
 interface IWorkerOptions {
   queues?: string[];
   concurrency?: number;
+  prefetch?: number;
 }
 
 export default class PeanarApp {
@@ -118,6 +128,7 @@ export default class PeanarApp {
 
     channel.json.write({
       routing_key: def.routingKey,
+      exchange: def.exchange,
       properties: {
         correlationId: req.correlationId,
         replyTo: def.replyTo
@@ -127,9 +138,27 @@ export default class PeanarApp {
         name: req.name,
         args: req.args
       }
-    })
+    });
 
-    return req.id
+    return req.id;
+  }
+
+  protected async _enqueueJobResponse(job: PeanarJob, result: IWorkerResult) {
+    this.log('Peanar: _enqueueJobResponse()')
+
+    if (!job.replyTo) throw new PeanarInternalError('PeanarApp::_enqueueJobResponse() called with no replyTo defined')
+
+    const channel = await this._ensureConnected()
+    await this.broker.declareQueue(job.replyTo)
+
+    channel.json.write({
+      routing_key: job.replyTo,
+      exchange: '',
+      properties: {
+        correlationId: job.correlationId || job.id
+      },
+      body: this._prepareJobResponse(job, result)
+    });
   }
 
   protected _prepareJobRequest(name: string, args: any[]): IPeanarRequest {
@@ -137,7 +166,24 @@ export default class PeanarApp {
       id: uuid.v4(),
       name,
       args,
+    };
+  }
+
+  protected _prepareJobResponse(job: PeanarJob, result: IWorkerResult): IPeanarResponse {
+    const res: IPeanarResponse = {
+      id: job.id,
+      name: job.name,
+      status: result.status,
+    };
+
+    if (result.status === 'SUCCESS') {
+      res.result = result.result;
     }
+    else {
+      res.error = result.error;
+    }
+
+    return res;
   }
 
   public job(fn: (...args: any[]) => Promise<any>, def: IPeanarJobDefinitionInput) {
@@ -169,23 +215,29 @@ export default class PeanarApp {
 
     return consumer
       .pipe(new Consumer(this, channel, queue))
-      .pipe(new Worker(this));
+      .pipe(new Worker(this))
+      .pipe(new Writable({
+        objectMode: true,
+        write: (result: IWorkerResult, _encoding: string, cb: TransformCallback) => {
+          this._enqueueJobResponse(result.job, result).then(_ => cb(), ex => cb(ex));
+        }
+      }));
   }
 
   public async worker(options: IWorkerOptions) {
-    const { queues, concurrency } = options;
+    const { queues, concurrency, prefetch = 1 } = options;
 
     await this._ensureConnected();
-    await this.broker.prefetch(1)
+    await this.broker.prefetch(prefetch);
     
     const worker_queues = (Array.isArray(queues) && queues.length > 0)
       ? queues
-      : [...this.registry.keys()]
+      : [...this.registry.keys()];
 
-    await Promise.all(worker_queues.map(q => this.broker.declareQueue(q)))
+    await Promise.all(worker_queues.map(q => this.broker.declareQueue(q)));
 
-    const queues_to_start = worker_queues.flatMap(q => Array(concurrency).fill(q))
+    const queues_to_start = worker_queues.flatMap(q => Array(concurrency).fill(q));
 
-    await Promise.all(queues_to_start.map(q => this._startWorker(q)))
+    return Promise.all(queues_to_start.map(q => this._startWorker(q)));
   }
 }
