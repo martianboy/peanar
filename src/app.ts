@@ -217,7 +217,12 @@ export default class PeanarApp {
       .pipe(new Writable({
         objectMode: true,
         write: (result: IWorkerResult, _encoding: string, cb: TransformCallback) => {
-          this._enqueueJobResponse(result.job, result).then(_ => cb(), ex => cb(ex));
+          if (result.job.replyTo) {
+            this._enqueueJobResponse(result.job, result).then(_ => cb(), ex => cb(ex));
+          }
+          else {
+            return cb()
+          }
         }
       }));
   }
