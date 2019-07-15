@@ -2,7 +2,6 @@ import uuid from 'uuid';
 
 import { PeanarInternalError } from './exceptions';
 import Broker from './broker';
-import Consumer from './consumer';
 import Worker, { IWorkerResult } from './worker';
 import PeanarJob from './job';
 import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
@@ -214,8 +213,7 @@ export default class PeanarApp {
     const consumer = await channel.basicConsume(queue);
 
     return consumer
-      .pipe(new Consumer(this, channel, queue))
-      .pipe(new Worker(this))
+      .pipe(new Worker(this, channel, queue))
       .pipe(new Writable({
         objectMode: true,
         write: (result: IWorkerResult, _encoding: string, cb: TransformCallback) => {
@@ -229,7 +227,7 @@ export default class PeanarApp {
 
     await this._ensureConnected();
     await this.broker.prefetch(prefetch);
-    
+
     const worker_queues = (Array.isArray(queues) && queues.length > 0)
       ? queues
       : [...this.registry.keys()];

@@ -4,8 +4,9 @@
   "description": "A job queue for Node.js based on RabbitMQ",
   "main": "dist/index.js",
   "scripts": {
-    "test": "npm test",
-    "prepublishOnly": "npx tsc"
+    "test": "npx mocha",
+    "build": "npx tsc",
+    "prepublishOnly": "npm build"
   },
   "repository": {
     "type": "git",
@@ -32,7 +33,7 @@
     "typescript": "^3.5.3"
   },
   "dependencies": {
-    "ts-amqp": "^0.2.3",
+    "ts-amqp": "^0.3.0",
     "uuid": "^3.3.2"
   }
 }
