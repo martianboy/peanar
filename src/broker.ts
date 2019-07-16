@@ -77,7 +77,7 @@ export default class PeanarBroker {
     }, false)
   }
 
-  async declareQueue(queue: string) {
+  async declareQueue(queue: string, bindings?: {exchange: string; routing_key: string}[]) {
     this.app.log(`PeanarBroker: declareQueue('${queue}')`)
 
     if (!this.channel) throw new PeanarAdapterError('Not connected!')
@@ -90,5 +90,13 @@ export default class PeanarBroker {
       auto_delete: false,
       arguments: {}
     })
+
+    for (const b of bindings || []) {
+      await this.channel.bindQueue({
+        exchange: b.exchange,
+        queue,
+        routing_key: b.routing_key
+      });
+    }
   }
 }

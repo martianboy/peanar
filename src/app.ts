@@ -111,19 +111,29 @@ export default class PeanarApp {
   }
 
   public getJobDefinition(queue: string, name: string): IPeanarJobDefinition | undefined {
-    const queue_mapping = this.registry.get(queue)
+    const queue_mapping = this.registry.get(queue);
     
-    if (!queue_mapping) return
+    if (!queue_mapping) return;
 
-    return queue_mapping.get(name)
+    return queue_mapping.get(name);
   }
 
   protected async _enqueueJob(def: Omit<IPeanarJobDefinition, 'handler'>, req: IPeanarRequest) {
-    this.log(`Peanar: _enqueueJob(${JSON.stringify(def, null, 2)}, ${JSON.stringify(req)})`)
+    this.log(`Peanar: _enqueueJob(${JSON.stringify(def, null, 2)}, ${JSON.stringify(req)})`);
 
-    const channel = await this._ensureConnected()
-    if (def.exchange) await this.broker.declareExchange(def.exchange)
-    await this.broker.declareQueue(def.queue)
+    const channel = await this._ensureConnected();
+    const bindings = [];
+
+    if (def.exchange) {
+      await this.broker.declareExchange(def.exchange);
+
+      bindings.push({
+        exchange: def.exchange,
+        routing_key: def.queue
+      });
+    }
+
+    await this.broker.declareQueue(def.queue, bindings);
 
     channel.json.write({
       routing_key: def.routingKey,
