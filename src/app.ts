@@ -1,4 +1,5 @@
 import uuid from 'uuid';
+import util from 'util';
 
 import { PeanarInternalError } from './exceptions';
 import Broker from './broker';
@@ -6,13 +7,14 @@ import Worker, { IWorkerResult } from './worker';
 import PeanarJob from './job';
 import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Writable, TransformCallback } from 'stream';
+import Consumer from 'ts-amqp/dist/classes/Consumer';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
   name?: string;
   routingKey?: string;
   exchange?: string;
-  replyTo?: string;  
+  replyTo?: string;
 }
 
 export interface IPeanarJobDefinition {
@@ -23,13 +25,17 @@ export interface IPeanarJobDefinition {
   routingKey: string;
   exchange?: string;
   replyTo?: string;
+
+  max_retries?: number;
 }
 
 export interface IPeanarRequest {
   id: string;
   name: string;
   args: any[];
+  attempt: number;
   correlationId?: string;
+  deliveryTag?: bigint;
 }
 
 export interface IPeanarJob extends IPeanarJobDefinition, IPeanarRequest {
@@ -56,12 +62,23 @@ interface IWorkerOptions {
   prefetch?: number;
 }
 
+enum EAppState {
+  RUNNING = 'RUNNING',
+  CLOSING = 'CLOSING',
+  CLOSED = 'CLOSED'
+}
+
 export default class PeanarApp {
   public registry: Map<string, Map<string, IPeanarJobDefinition>> = new Map;
 
   public log: (...args: any[]) => any;
   public broker: Broker;
   public jobClass: typeof PeanarJob;
+
+  protected consumers: Consumer[] = [];
+  protected workers: Worker[] = [];
+
+  public state: EAppState = EAppState.RUNNING;
 
   constructor(options: IPeanarOptions) {
     this.broker = new Broker(this, options.connection);
@@ -77,10 +94,19 @@ export default class PeanarApp {
     return this.broker.connect()
   }
 
+  protected async _shutdown() {
+    await Promise.all(this.consumers.map(c => c.cancel()))
+    await Promise.all(this.workers.map(w => util.promisify(w.destroy).call(w, undefined)))
+
+    await this.broker.shutdown();
+  }
+
   public async shutdown() {
     this.log('Peanar: shutdown()')
 
-    await this.broker.shutdown()
+    this.state = EAppState.CLOSING;
+    await this._shutdown();
+    this.state = EAppState.CLOSED;
   }
 
   protected _registerJob(fn: (...args: any[]) => Promise<any>, def: IPeanarJobDefinitionInput) {
@@ -118,7 +144,7 @@ export default class PeanarApp {
     return queue_mapping.get(name);
   }
 
-  protected async _enqueueJob(def: Omit<IPeanarJobDefinition, 'handler'>, req: IPeanarRequest) {
+  public async enqueueJob(def: Omit<IPeanarJobDefinition, 'handler'>, req: IPeanarRequest) {
     this.log(`Peanar: _enqueueJob(${JSON.stringify(def, null, 2)}, ${JSON.stringify(req)})`);
 
     const channel = await this._ensureConnected();
@@ -155,13 +181,13 @@ export default class PeanarApp {
   protected async _enqueueJobResponse(job: PeanarJob, result: IWorkerResult) {
     this.log('Peanar: _enqueueJobResponse()')
 
-    if (!job.replyTo) throw new PeanarInternalError('PeanarApp::_enqueueJobResponse() called with no replyTo defined')
+    if (!job.def.replyTo) throw new PeanarInternalError('PeanarApp::_enqueueJobResponse() called with no replyTo defined')
 
     const channel = await this._ensureConnected()
-    await this.broker.declareQueue(job.replyTo)
+    await this.broker.declareQueue(job.def.replyTo)
 
     channel.json.write({
-      routing_key: job.replyTo,
+      routing_key: job.def.replyTo,
       exchange: '',
       properties: {
         correlationId: job.correlationId || job.id
@@ -175,6 +201,7 @@ export default class PeanarApp {
       id: uuid.v4(),
       name,
       args,
+      attempt: 1
     };
   }
 
@@ -206,12 +233,10 @@ export default class PeanarApp {
 
     function enqueueJob() {
       self.log(`Peanar: job.enqueueJobLater('${job_name}', ${[...arguments]})`)
-      return self._enqueueJob(job_def, self._prepareJobRequest(job_name, [...arguments]))
+      return self.enqueueJob(job_def, self._prepareJobRequest(job_name, [...arguments]))
     }
 
-    enqueueJob.rpc = async function() {
-
-    }
+    enqueueJob.rpc = async function() {}
 
     return enqueueJob;
   }
@@ -221,13 +246,17 @@ export default class PeanarApp {
     await this.broker.declareQueue(queue);
 
     const consumer = await channel.basicConsume(queue);
+    const worker = new Worker(this, channel, queue)
+
+    this.consumers.push(consumer);
+    this.workers.push(worker);
 
     return consumer
-      .pipe(new Worker(this, channel, queue))
+      .pipe(worker)
       .pipe(new Writable({
         objectMode: true,
         write: (result: IWorkerResult, _encoding: string, cb: TransformCallback) => {
-          if (result.job.replyTo) {
+          if (result.job.def.replyTo) {
             this._enqueueJobResponse(result.job, result).then(_ => cb(), ex => cb(ex));
           }
           else {

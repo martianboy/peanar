@@ -14,13 +14,24 @@ export type IWorkerResult = {
   error: unknown;
 }
 
+enum EWorkerState {
+  IDLE = 'IDLE',
+  WORKING = 'WORKING'
+}
+
 let counter = 0;
+
+const SHUTDOWN_TIMEOUT = 10000;
 
 export default class PeanarWorker extends Transform {
   private app: PeanarApp;
   private channel: ChannelN;
   private queue: string;
   private n: number;
+  private state: EWorkerState = EWorkerState.IDLE;
+
+  private destroy_cb?: (err: Error | null) => void;
+  private _destroy_timeout?: NodeJS.Timeout;
 
   constructor(app: PeanarApp, channel: ChannelN, queue: string) {
     super({
@@ -31,6 +42,16 @@ export default class PeanarWorker extends Transform {
     this.channel = channel
     this.queue = queue
     this.n = counter++;
+  }
+
+  _destroy(error: Error | null, callback: (error: Error | null) => void) {
+    if (this.state === EWorkerState.IDLE) {
+      return callback(null);
+    }
+    else {
+      this.destroy_cb = callback;
+      this._destroy_timeout = setTimeout(callback, SHUTDOWN_TIMEOUT)
+    }
   }
 
   getJobDefinition(name: string) {
@@ -79,7 +100,8 @@ export default class PeanarWorker extends Transform {
       correlationId: delivery.properties.correlationId,
       queue: this.queue,
       args: body.args,
-      id: body.id
+      id: body.id,
+      attempt: delivery.properties.headers ? delivery.properties.headers['attempt'] as number : 1
     }
 
     if (delivery.properties.replyTo) {
@@ -87,7 +109,7 @@ export default class PeanarWorker extends Transform {
       req.correlationId = delivery.properties.correlationId;
     }
 
-    return new this.app.jobClass(req, this.channel);
+    return new this.app.jobClass(req, def, this.app, this.channel);
   }
 
   private async run(job: PeanarJob) {
@@ -100,23 +122,51 @@ export default class PeanarWorker extends Transform {
         status: 'SUCCESS',
         job,
         result
-      })
+      });
+
+      job.ack();
     } catch (ex) {
       this.push({
         status: 'FAILURE',
         job,
         err: ex
-      })
-    } finally {
-      job.ack()
+      });
+
+      job.ack();
+
+      if (job.attempt < job.max_retries || job.max_retries === -1) {
+        job.retry();
+      }
     }
   }
 
   _transform(delivery: IDelivery, _encoding: string, cb: TransformCallback) {
+    if (this.app.state !== "RUNNING") {
+      this.channel.basicReject(delivery.envelope.deliveryTag, true);
+      return cb();
+    }
+
+    this.state = EWorkerState.WORKING;
+
     const job = this._getJob(delivery)
 
-    if (!job) return cb();
+    const done = () => {
+      this.state = EWorkerState.IDLE;
+      cb();
 
-    this.run(job).then(_ => cb(), _ => cb());
+      if (this.destroy_cb) {
+        this.destroy_cb(null);
+      }
+      if (this._destroy_timeout) {
+        clearTimeout(this._destroy_timeout);
+        this._destroy_timeout = undefined;
+      }
+    }
+
+    if (!job) {
+      return done();
+    }
+
+    this.run(job).then(_ => done(), _ => done());
   }
 }

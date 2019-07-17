@@ -29,21 +29,24 @@ export default class PeanarBroker {
   /**
    * Initializes adapter connection and channel
    */
-  async connect() {
-    this.app.log('PeanarBroker: connect()')
+  connect = async () => {
+    this.app.log('PeanarBroker: connect()');
 
-    const conn = (this.conn = new Connection(this.config))
-    await conn.start()
+    const conn = (this.conn = new Connection(this.config));
+    await conn.start();
 
-    conn.on('close', () => this.connect())
+    conn.on('close', this.connect);
 
-    this.channel = await conn.channel()
+    this.channel = await conn.channel();
+    this.channel.on('channelClose', this.reconnectChannel);
 
-    this.channel.on('channelClose', async () => {
-      if (conn.state !== 'closing') this.channel = await conn.channel()
-    })
+    return this.channel;
+  }
 
-    return this.channel
+  private reconnectChannel = async () => {
+    if (this.conn && this.conn.state !== 'closing') {
+      this.channel = await this.conn.channel();
+    }
   }
 
   async prefetch(n: number) {
@@ -52,15 +55,19 @@ export default class PeanarBroker {
     this.channel.basicQos(n, false)
   }
 
+  async closeConsumers() {
+    if (!this.channel) throw new PeanarAdapterError('Shutdown: Strange! No open channels found!');
+  }
+
   async shutdown() {
     this.app.log('PeanarAdapter: shutdown()')
 
     if (!this.channel) throw new PeanarAdapterError('Shutdown: Strange! No open channels found!')
     if (!this.conn) throw new PeanarAdapterError('Shutdown: Not connected!')
 
-    this.channel.removeAllListeners('channelClose')
-    this.conn.removeAllListeners('close')
-    await this.conn.close()
+    this.channel.off('channelClose', this.reconnectChannel);
+    this.conn.off('close', this.connect);
+    await this.conn.close();
   }
 
   async declareExchange(exchange: string, type: EExchangeType = 'direct') {
