@@ -8,6 +8,7 @@ import PeanarJob from './job';
 import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Writable, TransformCallback } from 'stream';
 import Consumer from 'ts-amqp/dist/classes/Consumer';
+import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -25,6 +26,8 @@ export interface IPeanarJobDefinition {
   routingKey: string;
   exchange?: string;
   replyTo?: string;
+
+  expires?: number;
 
   max_retries?: number;
 }
@@ -161,13 +164,19 @@ export default class PeanarApp {
 
     await this.broker.declareQueue(def.queue, bindings);
 
+    const properties: IBasicProperties = {
+      correlationId: req.correlationId,
+      replyTo: def.replyTo
+    };
+
+    if (typeof def.expires === 'number') {
+      properties.expiration = def.expires.toString();
+    }
+
     channel.json.write({
       routing_key: def.routingKey,
       exchange: def.exchange,
-      properties: {
-        correlationId: req.correlationId,
-        replyTo: def.replyTo
-      },
+      properties,
       body: {
         id: req.id,
         name: req.name,
