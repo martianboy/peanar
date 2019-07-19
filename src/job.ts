@@ -64,6 +64,7 @@ export default class PeanarJob {
       throw new PeanarJobError("Worker: No deliveryTag set!");
 
     this.channel.basicAck(this.deliveryTag, false);
+    this.app.log(`PeanarJob#${this.id}: Acknowledged!`);
   }
 
   async reject() {
@@ -74,10 +75,15 @@ export default class PeanarJob {
       throw new PeanarJobError("Worker: No deliveryTag set!");
 
     if (this.max_retries < 0 || this.attempt <= this.max_retries) {
+      this.app.log(`PeanarJob#${this.id}: Trying again...`);
       await this._declareRetryQueues();
+
+      this.app.log(`PeanarJob#${this.id}: Rejecting to retry queue...`);
       this.channel.basicReject(this.deliveryTag, false);
     } else {
       // No attempts left. Publish to error exchange for manual investigation.
+      this.app.log(`PeanarJob#${this.id}: No retries. Writing to error exchange!`);
+
       this.channel.json.write({
         routing_key: this.def.routingKey,
         exchange: this.error_name,
@@ -111,11 +117,11 @@ export default class PeanarJob {
   }
 
   protected get requeue_name() {
-    return `${this.def.queue}-retry-requeue`;
+    return `${this.def.queue}.retry-requeue`;
   }
 
   protected get error_name() {
-    return `${this.def.queue}-error`;
+    return `${this.def.queue}.error`;
   }
 
   protected async _declareRetryExchanges() {
@@ -124,11 +130,7 @@ export default class PeanarJob {
     const requeue_name = this.requeue_name;
 
     for (const name of [retry_name, error_name, requeue_name]) {
-      await this.channel.declareExchange({
-        name: name,
-        type: 'topic',
-        durable: true
-      });
+      await this.app.broker.declareExchange(name, 'topic');
     }
   }
 
@@ -136,48 +138,23 @@ export default class PeanarJob {
     const retry_name = this.retry_name;
     const requeue_name = this.requeue_name;
 
-    return this.channel.declareQueue({
-      name: retry_name,
-      durable: true,
-      auto_delete: false,
-      exclusive: false,
-      arguments: {
-        expires: 120000,
-        messageTtl: 60000,
-        deadLetterExchange: requeue_name
-      }
-    });
+    return this.app.broker.declareQueue(retry_name, {
+      expires: 120000,
+      messageTtl: 60000,
+      deadLetterExchange: requeue_name
+    }, [{
+      exchange: retry_name,
+      routing_key: '#'
+    }]);
   }
 
   protected _declareErrorQueue() {
     const error_name = this.error_name;
 
-    return this.channel.declareQueue({
-      name: error_name,
-      durable: true,
-      auto_delete: false,
-      exclusive: false
-    });
-  }
-
-  protected _bindRetryQueue() {
-    const retry_name = this.retry_name;
-
-    return this.channel.bindQueue({
-      exchange: retry_name,
-      queue: retry_name,
-      routing_key: '#'
-    });
-  }
-
-  protected _bindErrorQueue() {
-    const error_name = `${this.def.queue}.error`;
-
-    return this.channel.bindQueue({
+    return this.app.broker.declareQueue(error_name, {}, [{
       exchange: error_name,
-      queue: error_name,
       routing_key: '#'
-    });
+    }]);
   }
 
   protected _bindToRequeueExchange() {
@@ -194,8 +171,6 @@ export default class PeanarJob {
     await this._declareRetryExchanges();
     await this._declareRetryQueue();
     await this._declareErrorQueue();
-    await this._bindRetryQueue();
-    await this._bindErrorQueue();
     await this._bindToRequeueExchange();
   }
 

@@ -16,6 +16,12 @@ export interface IPeanarJobDefinitionInput {
   routingKey?: string;
   exchange?: string;
   replyTo?: string;
+
+  expires?: number;
+
+  retry_exchange?: string;
+  error_exchange?: string;
+  max_retries?: number;
 }
 
 export interface IPeanarJobDefinition {
@@ -29,7 +35,8 @@ export interface IPeanarJobDefinition {
 
   expires?: number;
 
-  error_exchange?: boolean;
+  retry_exchange?: string;
+  error_exchange?: string;
   max_retries?: number;
 }
 
@@ -142,7 +149,7 @@ export default class PeanarApp {
 
   public getJobDefinition(queue: string, name: string): IPeanarJobDefinition | undefined {
     const queue_mapping = this.registry.get(queue);
-    
+
     if (!queue_mapping) return;
 
     return queue_mapping.get(name);
@@ -163,7 +170,14 @@ export default class PeanarApp {
       });
     }
 
-    await this.broker.declareQueue(def.queue, bindings);
+    if (def.retry_exchange) {
+      await this.broker.declareExchange(def.retry_exchange, 'topic');
+      await this.broker.declareQueue(def.queue, {
+        deadLetterExchange: def.retry_exchange
+      }, bindings);
+    } else {
+      await this.broker.declareQueue(def.queue, {}, bindings);
+    }
 
     const properties: IBasicProperties = {
       correlationId: req.correlationId,

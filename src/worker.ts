@@ -138,6 +138,8 @@ export default class PeanarWorker extends Transform {
         result
       });
 
+      this.app.log(`PeanarWorker#${this.n}: SUCCESS!`);
+
       job.ack();
     } catch (ex) {
       this.push({
@@ -146,12 +148,15 @@ export default class PeanarWorker extends Transform {
         err: ex
       });
 
+      this.app.log(`PeanarWorker#${this.n}: FAILURE!`);
+
       await job.reject();
     }
   }
 
   _transform(delivery: IDelivery, _encoding: string, cb: TransformCallback) {
     if (this.app.state !== "RUNNING") {
+      this.app.log(`PeanarWorker#${this.n}: Received job while shutting down. Rejecting...`);
       this.channel.basicReject(delivery.envelope.deliveryTag, true);
       return cb();
     }
@@ -161,10 +166,12 @@ export default class PeanarWorker extends Transform {
     const job = this._getJob(delivery)
 
     const done = () => {
+      this.app.log(`PeanarWorker#${this.n}: Worker state: Idle`);
       this.state = EWorkerState.IDLE;
       cb();
 
       if (this.destroy_cb) {
+        this.app.log(`PeanarWorker#${this.n}: Destroying worker!`);
         this.destroy_cb(null);
       }
       if (this._destroy_timeout) {

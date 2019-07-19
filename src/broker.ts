@@ -4,6 +4,7 @@ import { Connection } from 'ts-amqp';
 import ChannelN from 'ts-amqp/dist/classes/ChannelN';
 import { PeanarAdapterError } from './exceptions';
 import { EExchangeType } from 'ts-amqp/dist/interfaces/Exchange';
+import { IQueueArgs } from 'ts-amqp/dist/interfaces/Queue';
 
 /**
  * Peanar's broker adapter
@@ -84,7 +85,7 @@ export default class PeanarBroker {
     }, false)
   }
 
-  async declareQueue(queue: string, bindings?: {exchange: string; routing_key: string}[]) {
+  async declareQueue(queue: string, args: IQueueArgs = {}, bindings: {exchange: string; routing_key: string}[] = []) {
     this.app.log(`PeanarBroker: declareQueue('${queue}')`)
 
     if (!this.channel) throw new PeanarAdapterError('Not connected!')
@@ -95,7 +96,7 @@ export default class PeanarBroker {
       durable: true,
       exclusive: false,
       auto_delete: false,
-      arguments: {}
+      arguments: args
     })
 
     for (const b of bindings || []) {
