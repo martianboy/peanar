@@ -23,6 +23,7 @@ export interface IPeanarJobDefinitionInput {
   retry_exchange?: string;
   error_exchange?: string;
   max_retries?: number;
+  retry_delay?: number;
 }
 
 export interface IPeanarJobDefinition {
@@ -39,6 +40,7 @@ export interface IPeanarJobDefinition {
   retry_exchange?: string;
   error_exchange?: string;
   max_retries?: number;
+  retry_delay?: number;
 }
 
 export interface IPeanarRequest {
@@ -266,9 +268,7 @@ export default class PeanarApp {
     return enqueueJob;
   }
 
-  protected async _startWorker(queue: string) {
-    const channel = await this._ensureConnected();
-
+  private async _declareQueue(queue: string) {
     const defs = this.registry.get(queue);
 
     if (defs) {
@@ -290,6 +290,10 @@ export default class PeanarApp {
 
       await this.broker.declareQueue(queue, args, bindings);
     }
+  }
+
+  protected async _startWorker(queue: string) {
+    const channel = await this._ensureConnected();
 
     const consumer = await channel.basicConsume(queue);
     const worker = new Worker(this, channel, queue)
@@ -322,7 +326,7 @@ export default class PeanarApp {
       ? queues
       : [...this.registry.keys()];
 
-    await Promise.all(worker_queues.map(q => this.broker.declareQueue(q)));
+    await Promise.all(worker_queues.map(q => this._declareQueue(q)));
 
     const queues_to_start = worker_queues.flatMap(q => Array(concurrency).fill(q));
 

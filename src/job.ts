@@ -134,18 +134,21 @@ export default class PeanarJob {
     }
   }
 
-  protected _declareRetryQueue() {
+  protected async _declareRetryQueue() {
     const retry_name = this.retry_name;
     const requeue_name = this.requeue_name;
 
-    return this.app.broker.declareQueue(retry_name, {
-      expires: 120000,
-      messageTtl: 60000,
-      deadLetterExchange: requeue_name
-    }, [{
-      exchange: retry_name,
-      routingKey: '#'
-    }]);
+    await this.channel.declareQueue({
+      name: retry_name,
+      arguments: {
+        expires: 2 * (this.def.retry_delay || 60000),
+        messageTtl: this.def.retry_delay || 60000,
+        deadLetterExchange: requeue_name
+      },
+      auto_delete: false,
+      durable: true,
+      exclusive: false
+    });
   }
 
   protected _declareErrorQueue() {
@@ -155,6 +158,16 @@ export default class PeanarJob {
       exchange: error_name,
       routingKey: '#'
     }]);
+  }
+
+  protected _bindRetryQueue() {
+    const retry_name = this.retry_name;
+
+    return this.channel.bindQueue({
+      exchange: retry_name,
+      queue: retry_name,
+      routing_key: '#'
+    });
   }
 
   protected _bindToRequeueExchange() {
@@ -171,6 +184,7 @@ export default class PeanarJob {
     await this._declareRetryExchanges();
     await this._declareRetryQueue();
     await this._declareErrorQueue();
+    await this._bindRetryQueue();
     await this._bindToRequeueExchange();
   }
 
