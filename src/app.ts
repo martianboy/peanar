@@ -29,6 +29,7 @@ export interface IPeanarJobDefinition {
 
   expires?: number;
 
+  error_exchange?: boolean;
   max_retries?: number;
 }
 

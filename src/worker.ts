@@ -14,6 +14,15 @@ export type IWorkerResult = {
   error: unknown;
 }
 
+export interface IDeathInfo {
+  count: bigint;
+  reason: string;
+  queue: string;
+  time: bigint;
+  exchange: string,
+  'routing-keys': string[]
+}
+
 enum EWorkerState {
   IDLE = 'IDLE',
   WORKING = 'WORKING'
@@ -93,6 +102,11 @@ export default class PeanarWorker extends Transform {
       return
     }
 
+    const headers = delivery.properties.headers
+    const deathInfo = headers && Array.isArray(headers['x-death'])
+      ? (headers['x-death'] as IDeathInfo[]).find(d => d.queue === def.queue)
+      : undefined;
+
     const req: IPeanarJob = {
       ...def,
       deliveryTag: delivery.envelope.deliveryTag,
@@ -101,7 +115,7 @@ export default class PeanarWorker extends Transform {
       queue: this.queue,
       args: body.args,
       id: body.id,
-      attempt: delivery.properties.headers ? delivery.properties.headers['attempt'] as number : 1
+      attempt: deathInfo ? Number(deathInfo.count) + 1 : 1
     }
 
     if (delivery.properties.replyTo) {
@@ -132,11 +146,7 @@ export default class PeanarWorker extends Transform {
         err: ex
       });
 
-      job.ack();
-
-      if (job.attempt < job.max_retries || job.max_retries === -1) {
-        job.retry();
-      }
+      await job.reject();
     }
   }
 

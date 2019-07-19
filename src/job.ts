@@ -2,6 +2,24 @@ import ChannelN from "ts-amqp/dist/classes/ChannelN";
 import { PeanarAdapterError, PeanarJobError } from "./exceptions";
 import PeanarApp, { IPeanarRequest, IPeanarJobDefinition, IPeanarJob } from "./app";
 
+const fib_seq = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584];
+
+function fib(n: number, m: number = 1): number {
+  if (n > fib_seq.length) {
+    for (let i = fib_seq.length; i < n; i++) {
+      fib_seq[i] = fib_seq[i - 1] + fib_seq[i - 2];
+    }
+  }
+
+  return m * fib_seq[n - 1];
+}
+
+function exponential(n: number, m: number = 1) {
+  return Math.round(
+    m * 0.5 * (Math.pow(2, n) - 1)
+  );
+}
+
 export default class PeanarJob {
   public id: string;
   public name: string;
@@ -48,14 +66,34 @@ export default class PeanarJob {
     this.channel.basicAck(this.deliveryTag, false);
   }
 
-  reject(requeue: boolean = false) {
+  async reject() {
     if (!this.channel)
       throw new PeanarAdapterError("Worker: AMQP connection lost!");
 
     if (!this.deliveryTag)
       throw new PeanarJobError("Worker: No deliveryTag set!");
 
-    this.channel.basicReject(this.deliveryTag, requeue);
+    if (this.max_retries < 0 || this.attempt <= this.max_retries) {
+      await this._declareRetryQueues();
+      this.channel.basicReject(this.deliveryTag, false);
+    } else {
+      // No attempts left. Publish to error exchange for manual investigation.
+      this.channel.json.write({
+        routing_key: this.def.routingKey,
+        exchange: this.error_name,
+        properties: {
+          correlationId: this.correlationId,
+          replyTo: this.def.replyTo
+        },
+        body: {
+          id: this.id,
+          name: this.name,
+          args: this.args
+        }
+      });
+
+      return this.ack();
+    }
   }
 
   enqueue() {
@@ -66,6 +104,99 @@ export default class PeanarJob {
       attempt: 1,
       correlationId: this.correlationId
     });
+  }
+
+  protected get retry_name() {
+    return `${this.def.queue}.retry`;
+  }
+
+  protected get requeue_name() {
+    return `${this.def.queue}-retry-requeue`;
+  }
+
+  protected get error_name() {
+    return `${this.def.queue}-error`;
+  }
+
+  protected async _declareRetryExchanges() {
+    const retry_name = this.retry_name;
+    const error_name = this.error_name;
+    const requeue_name = this.requeue_name;
+
+    for (const name of [retry_name, error_name, requeue_name]) {
+      await this.channel.declareExchange({
+        name: name,
+        type: 'topic',
+        durable: true
+      });
+    }
+  }
+
+  protected _declareRetryQueue() {
+    const retry_name = this.retry_name;
+    const requeue_name = this.requeue_name;
+
+    return this.channel.declareQueue({
+      name: retry_name,
+      durable: true,
+      auto_delete: false,
+      exclusive: false,
+      arguments: {
+        expires: 120000,
+        messageTtl: 60000,
+        deadLetterExchange: requeue_name
+      }
+    });
+  }
+
+  protected _declareErrorQueue() {
+    const error_name = this.error_name;
+
+    return this.channel.declareQueue({
+      name: error_name,
+      durable: true,
+      auto_delete: false,
+      exclusive: false
+    });
+  }
+
+  protected _bindRetryQueue() {
+    const retry_name = this.retry_name;
+
+    return this.channel.bindQueue({
+      exchange: retry_name,
+      queue: retry_name,
+      routing_key: '#'
+    });
+  }
+
+  protected _bindErrorQueue() {
+    const error_name = `${this.def.queue}.error`;
+
+    return this.channel.bindQueue({
+      exchange: error_name,
+      queue: error_name,
+      routing_key: '#'
+    });
+  }
+
+  protected _bindToRequeueExchange() {
+    const requeue_name = this.requeue_name;
+
+    return this.channel.bindQueue({
+      exchange: requeue_name,
+      queue: this.def.queue,
+      routing_key: '#'
+    });
+  }
+
+  protected async _declareRetryQueues() {
+    await this._declareRetryExchanges();
+    await this._declareRetryQueue();
+    await this._declareErrorQueue();
+    await this._bindRetryQueue();
+    await this._bindErrorQueue();
+    await this._bindToRequeueExchange();
   }
 
   retry() {
