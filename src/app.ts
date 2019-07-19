@@ -9,6 +9,7 @@ import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Writable, TransformCallback } from 'stream';
 import Consumer from 'ts-amqp/dist/classes/Consumer';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
+import { IQueueArgs } from 'ts-amqp/dist/interfaces/Queue';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -166,7 +167,7 @@ export default class PeanarApp {
 
       bindings.push({
         exchange: def.exchange,
-        routing_key: def.queue
+        routingKey: def.queue
       });
     }
 
@@ -267,7 +268,28 @@ export default class PeanarApp {
 
   protected async _startWorker(queue: string) {
     const channel = await this._ensureConnected();
-    await this.broker.declareQueue(queue);
+
+    const defs = this.registry.get(queue);
+
+    if (defs) {
+      const def = [...defs.values()].find(d => d.retry_exchange);
+      const args: IQueueArgs = {};
+
+      if (def) {
+        args.deadLetterExchange = def.retry_exchange;
+      }
+
+      function hasExchange(d: IPeanarJobDefinition): d is Required<IPeanarJobDefinition> {
+        return typeof d.exchange === 'string';
+      }
+
+      const bindings = [...defs.values()].filter(hasExchange).map(d => ({
+        exchange: d.exchange,
+        routingKey: d.routingKey
+      }));
+
+      await this.broker.declareQueue(queue, args, bindings);
+    }
 
     const consumer = await channel.basicConsume(queue);
     const worker = new Worker(this, channel, queue)

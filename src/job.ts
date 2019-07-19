@@ -144,7 +144,7 @@ export default class PeanarJob {
       deadLetterExchange: requeue_name
     }, [{
       exchange: retry_name,
-      routing_key: '#'
+      routingKey: '#'
     }]);
   }
 
@@ -153,7 +153,7 @@ export default class PeanarJob {
 
     return this.app.broker.declareQueue(error_name, {}, [{
       exchange: error_name,
-      routing_key: '#'
+      routingKey: '#'
     }]);
   }
 
