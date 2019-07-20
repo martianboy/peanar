@@ -284,16 +284,11 @@ export default class PeanarApp {
         return typeof d.exchange === 'string';
       }
 
-      function defExchange(d: Required<IPeanarJobDefinition>): IExchange {
-        return {
-          name: d.exchange,
-          durable: true,
-          type: 'direct'
-        };
+      const defExchange = (d: Required<IPeanarJobDefinition>) => {
+        return this.broker.declareExchange(d.exchange, 'direct');
       }
 
-      const exchanges: IExchange[] = [...defs.values()].filter(hasExchange).map(defExchange);
-      await Promise.all(exchanges.map(e => this.broker.declareExchange(e.name, e.type)));
+      await Promise.all([...defs.values()].filter(hasExchange).map(defExchange));
 
       const bindings = [...defs.values()].filter(hasExchange).map(d => ({
         exchange: d.exchange,
