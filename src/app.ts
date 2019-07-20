@@ -10,6 +10,7 @@ import { Writable, TransformCallback } from 'stream';
 import Consumer from 'ts-amqp/dist/classes/Consumer';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import { IQueueArgs } from 'ts-amqp/dist/interfaces/Queue';
+import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -282,6 +283,17 @@ export default class PeanarApp {
       function hasExchange(d: IPeanarJobDefinition): d is Required<IPeanarJobDefinition> {
         return typeof d.exchange === 'string';
       }
+
+      function defExchange(d: Required<IPeanarJobDefinition>): IExchange {
+        return {
+          name: d.exchange,
+          durable: true,
+          type: 'direct'
+        };
+      }
+
+      const exchanges: IExchange[] = [...defs.values()].filter(hasExchange).map(defExchange);
+      await Promise.all(exchanges.map(e => this.broker.declareExchange(e.name, e.type)));
 
       const bindings = [...defs.values()].filter(hasExchange).map(d => ({
         exchange: d.exchange,
