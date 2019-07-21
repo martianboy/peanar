@@ -202,7 +202,15 @@ export default class PeanarJob {
     });
   }
 
+  pauseQueue() {
+    return this.app.pauseQueue(this.def.queue);
+  }
+
+  resumeQueue() {
+    return this.app.resumeQueue(this.def.queue);
+  }
+
   async perform() {
-    return await this.handler.apply(null, this.args);
+    return await this.handler.apply(this, this.args);
   }
 }

@@ -90,8 +90,8 @@ export default class PeanarApp {
   public broker: Broker;
   public jobClass: typeof PeanarJob;
 
-  protected consumers: Consumer[] = [];
-  protected workers: Worker[] = [];
+  protected consumers: Map<string, Consumer[]> = new Map;
+  protected workers: Map<string, Worker[]> = new Map;
 
   public state: EAppState = EAppState.RUNNING;
 
@@ -110,8 +110,8 @@ export default class PeanarApp {
   }
 
   protected async _shutdown() {
-    await Promise.all(this.consumers.map(c => c.cancel()))
-    await Promise.all(this.workers.map(w => util.promisify(w.destroy).call(w, undefined)))
+    await Promise.all([...this.consumers.values()].flat().map(c => c.cancel()))
+    await Promise.all([...this.workers.values()].flat().map(w => util.promisify(w.destroy).call(w, undefined)))
 
     await this.broker.shutdown();
   }
@@ -149,6 +149,18 @@ export default class PeanarApp {
     queue_mapping.set(job_def.name, job_def)
 
     return job_def
+  }
+
+  protected _registerWorker(queue: string, worker: Worker) {
+    const workers = this.workers.get(queue) || [];
+    workers.push(worker);
+    this.workers.set(queue, workers);
+  }
+
+  protected _registerConsumer(queue: string, consumer: Consumer) {
+    const consumers = this.consumers.get(queue) || [];
+    consumers.push(consumer);
+    this.consumers.set(queue, consumers);
   }
 
   public getJobDefinition(queue: string, name: string): IPeanarJobDefinition | undefined {
@@ -299,14 +311,28 @@ export default class PeanarApp {
     }
   }
 
+  public pauseQueue(queue: string) {
+    const consumers = this.consumers.get(queue);
+    if (!consumers) return;
+
+    for (const c of consumers) c.pause();
+  }
+
+  public resumeQueue(queue: string) {
+    const consumers = this.consumers.get(queue);
+    if (!consumers) return;
+
+    for (const c of consumers) c.resume();
+  }
+
   protected async _startWorker(queue: string) {
     const channel = await this._ensureConnected();
 
     const consumer = await channel.basicConsume(queue);
     const worker = new Worker(this, channel, queue)
 
-    this.consumers.push(consumer);
-    this.workers.push(worker);
+    this._registerConsumer(queue, consumer);
+    this._registerWorker(queue, worker);
 
     return consumer
       .pipe(worker)
