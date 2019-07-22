@@ -72,10 +72,10 @@ export default class PeanarBroker {
   }
 
   async declareExchange(exchange: string, type: EExchangeType = 'direct') {
-    this.app.log(`PeanarBroker: declareExchange('${exchange}')`)
-
     if (!this.channel) throw new PeanarAdapterError('Not connected!')
     if (this.declared_exchanges.includes(exchange)) return
+
+    this.app.log(`PeanarBroker: declareExchange('${exchange}')`)
 
     await this.channel.declareExchange({
       name: exchange,
@@ -86,10 +86,10 @@ export default class PeanarBroker {
   }
 
   async declareQueue(queue: string, args: IQueueArgs = {}, bindings: {exchange: string; routingKey: string}[] = []) {
-    this.app.log(`PeanarBroker: declareQueue('${queue}')`)
-
     if (!this.channel) throw new PeanarAdapterError('Not connected!')
     if (this.declared_queues.includes(queue)) return
+
+    this.app.log(`PeanarBroker: declareQueue('${queue}')`)
 
     await this.channel.declareQueue({
       name: queue,

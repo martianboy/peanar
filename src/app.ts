@@ -1,5 +1,7 @@
 import uuid from 'uuid';
 import util from 'util';
+import debugFn from 'debug';
+const debug = debugFn('peanar');
 
 import { PeanarInternalError } from './exceptions';
 import Broker from './broker';
@@ -103,7 +105,7 @@ export default class PeanarApp {
   }
 
   protected async _ensureConnected() {
-    this.log('Peanar: ensureConnected()');
+    debug('Peanar: ensureConnected()');
 
     if (this.broker.channel) return this.broker.channel;
     if (!this._connectionPromise) {
@@ -128,8 +130,8 @@ export default class PeanarApp {
   }
 
   protected _registerJob(fn: (...args: any[]) => Promise<any>, def: IPeanarJobDefinitionInput) {
-    this.log(`Peanar: _registerJob('${def.queue}', ${JSON.stringify(def, null, 2)})`)
-    
+    debug(`Peanar: _registerJob('${def.queue}', ${JSON.stringify(def, null, 2)})`)
+
     const job_def: IPeanarJobDefinition = {
       routingKey: def.queue,
       exchange: '',
@@ -175,7 +177,7 @@ export default class PeanarApp {
   }
 
   public async enqueueJob(def: Omit<IPeanarJobDefinition, 'handler'>, req: IPeanarRequest) {
-    this.log(`Peanar: _enqueueJob(${JSON.stringify(def, null, 2)}, ${JSON.stringify(req)})`);
+    debug(`Peanar: _enqueueJob(${JSON.stringify(def, null, 2)}, ${JSON.stringify(req)})`);
 
     const channel = await this._ensureConnected();
     const bindings = [];
@@ -222,7 +224,7 @@ export default class PeanarApp {
   }
 
   protected async _enqueueJobResponse(job: PeanarJob, result: IWorkerResult) {
-    this.log('Peanar: _enqueueJobResponse()')
+    debug('Peanar: _enqueueJobResponse()')
 
     if (!job.def.replyTo) throw new PeanarInternalError('PeanarApp::_enqueueJobResponse() called with no replyTo defined')
 
@@ -268,14 +270,14 @@ export default class PeanarApp {
   public job(fn: (...args: any[]) => Promise<any>, def: IPeanarJobDefinitionInput) {
     const job_name = (def.name && def.name.length) ? def.name : fn.name
 
-    this.log(`Peanar: job('${def.queue}', '${job_name}')`)
+    debug(`Peanar: job('${def.queue}', '${job_name}')`)
 
     const job_def = this._registerJob(fn, def)
 
     const self = this
 
     function enqueueJob() {
-      self.log(`Peanar: job.enqueueJobLater('${job_name}', ${[...arguments]})`)
+      debug(`Peanar: job.enqueueJobLater('${job_name}', ${[...arguments]})`)
       return self.enqueueJob(job_def, self._prepareJobRequest(job_name, [...arguments]))
     }
 
