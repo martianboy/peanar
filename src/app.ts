@@ -10,7 +10,7 @@ import { Writable, TransformCallback } from 'stream';
 import Consumer from 'ts-amqp/dist/classes/Consumer';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import { IQueueArgs } from 'ts-amqp/dist/interfaces/Queue';
-import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
+import ChannelN from 'ts-amqp/dist/classes/ChannelN';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -67,7 +67,7 @@ export interface IPeanarResponse {
 
 export interface IPeanarOptions {
   connection?: IConnectionParams;
-  jobClass: typeof PeanarJob;
+  jobClass?: typeof PeanarJob;
   logger?(...args: any[]): any;
 }
 
@@ -92,21 +92,24 @@ export default class PeanarApp {
 
   protected consumers: Map<string, Consumer[]> = new Map;
   protected workers: Map<string, Worker[]> = new Map;
+  protected _connectionPromise?: Promise<ChannelN>;
 
   public state: EAppState = EAppState.RUNNING;
 
-  constructor(options: IPeanarOptions) {
+  constructor(options: IPeanarOptions = {}) {
     this.broker = new Broker(this, options.connection);
-    this.jobClass = options.jobClass;
+    this.jobClass = options.jobClass || PeanarJob;
     this.log = options.logger || console.log.bind(console);
   }
 
   protected async _ensureConnected() {
-    this.log('Peanar: ensureConnected()')
+    this.log('Peanar: ensureConnected()');
 
-    if (this.broker.channel) return this.broker.channel
-
-    return this.broker.connect()
+    if (this.broker.channel) return this.broker.channel;
+    if (!this._connectionPromise) {
+      this._connectionPromise = this.broker.connect();
+    }
+    return this._connectionPromise;
   }
 
   protected async _shutdown() {
