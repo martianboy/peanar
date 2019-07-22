@@ -100,6 +100,8 @@ export default class PeanarBroker {
     })
 
     for (const b of bindings || []) {
+      if (b.exchange === '') continue;
+
       await this.channel.bindQueue({
         exchange: b.exchange,
         queue,
