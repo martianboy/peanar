@@ -1,3 +1,6 @@
+import debugFn from 'debug';
+const debug = debugFn('peanar');
+
 import PeanarApp from './app';
 import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Connection } from 'ts-amqp';
@@ -31,7 +34,7 @@ export default class PeanarBroker {
    * Initializes adapter connection and channel
    */
   connect = async () => {
-    this.app.log('PeanarBroker: connect()');
+    debug('PeanarBroker: connect()');
 
     const conn = (this.conn = new Connection(this.config));
     await conn.start();
@@ -61,7 +64,7 @@ export default class PeanarBroker {
   }
 
   async shutdown() {
-    this.app.log('PeanarAdapter: shutdown()')
+    debug('PeanarAdapter: shutdown()')
 
     if (!this.channel) throw new PeanarAdapterError('Shutdown: Strange! No open channels found!')
     if (!this.conn) throw new PeanarAdapterError('Shutdown: Not connected!')
@@ -75,7 +78,7 @@ export default class PeanarBroker {
     if (!this.channel) throw new PeanarAdapterError('Not connected!')
     if (this.declared_exchanges.includes(exchange)) return
 
-    this.app.log(`PeanarBroker: declareExchange('${exchange}')`)
+    debug(`PeanarBroker: declareExchange('${exchange}')`)
 
     await this.channel.declareExchange({
       name: exchange,
@@ -89,7 +92,7 @@ export default class PeanarBroker {
     if (!this.channel) throw new PeanarAdapterError('Not connected!')
     if (this.declared_queues.includes(queue)) return
 
-    this.app.log(`PeanarBroker: declareQueue('${queue}')`)
+    debug(`PeanarBroker: declareQueue('${queue}')`)
 
     await this.channel.declareQueue({
       name: queue,

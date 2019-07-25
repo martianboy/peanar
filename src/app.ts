@@ -177,7 +177,7 @@ export default class PeanarApp {
   }
 
   public async enqueueJob(def: Omit<IPeanarJobDefinition, 'handler'>, req: IPeanarRequest) {
-    debug(`Peanar: _enqueueJob(${JSON.stringify(def, null, 2)}, ${JSON.stringify(req)})`);
+    debug(`Peanar: enqueueJob(${def.queue}:${def.name}})`);
 
     const channel = await this._ensureConnected();
     const bindings = [];
