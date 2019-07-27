@@ -1,5 +1,4 @@
 import uuid from 'uuid';
-import util from 'util';
 import debugFn from 'debug';
 const debug = debugFn('peanar');
 
@@ -114,18 +113,18 @@ export default class PeanarApp {
     return this._connectionPromise;
   }
 
-  protected async _shutdown() {
+  protected async _shutdown(timeout?: number) {
     await Promise.all([...this.consumers.values()].flat().map(c => c.cancel()))
-    await Promise.all([...this.workers.values()].flat().map(w => util.promisify(w.destroy).call(w, undefined)))
+    await Promise.all([...this.workers.values()].flat().map(w => w.shutdown(timeout)))
 
     await this.broker.shutdown();
   }
 
-  public async shutdown() {
+  public async shutdown(timeout?: number) {
     this.log('Peanar: shutdown()')
 
     this.state = EAppState.CLOSING;
-    await this._shutdown();
+    await this._shutdown(timeout);
     this.state = EAppState.CLOSED;
   }
 

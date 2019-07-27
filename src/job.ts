@@ -1,6 +1,7 @@
+import { EventEmitter } from "events";
 import ChannelN from "ts-amqp/dist/classes/ChannelN";
-import { PeanarAdapterError, PeanarJobError } from "./exceptions";
-import PeanarApp, { IPeanarRequest, IPeanarJobDefinition, IPeanarJob } from "./app";
+import { PeanarAdapterError, PeanarJobError, PeanarJobCancelledError } from "./exceptions";
+import PeanarApp, { IPeanarRequest, IPeanarJobDefinition } from "./app";
 
 const fib_seq = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584];
 
@@ -20,7 +21,7 @@ function exponential(n: number, m: number = 1) {
   );
 }
 
-export default class PeanarJob {
+export default class PeanarJob extends EventEmitter {
   public id: string;
   public name: string;
   public args: any[];
@@ -34,12 +35,16 @@ export default class PeanarJob {
   public attempt: number;
   public max_retries: number;
 
+  public cancelled: boolean = false;
+
   constructor(
     req: IPeanarRequest,
     def: IPeanarJobDefinition,
     app: PeanarApp,
     channel: ChannelN
   ) {
+    super()
+
     this.def = def;
 
     this.id = req.id;
@@ -56,6 +61,11 @@ export default class PeanarJob {
     this.app = app;
   }
 
+  cancel(reason?: string | Error) {
+    this.cancelled = true;
+    this.emit('cancel', reason);
+  }
+
   ack() {
     if (!this.channel)
       throw new PeanarAdapterError("Worker: AMQP connection lost!");
@@ -63,8 +73,10 @@ export default class PeanarJob {
     if (!this.deliveryTag)
       throw new PeanarJobError("Worker: No deliveryTag set!");
 
-    this.channel.basicAck(this.deliveryTag, false);
-    this.app.log(`PeanarJob#${this.id}: Acknowledged!`);
+    if (!this.cancelled) {
+      this.channel.basicAck(this.deliveryTag, false);
+      this.app.log(`PeanarJob#${this.id}: Acknowledged!`);
+    }
   }
 
   async reject() {
@@ -210,7 +222,30 @@ export default class PeanarJob {
     return this.app.resumeQueue(this.def.queue);
   }
 
-  async perform() {
-    return await this.handler.apply(this, this.args);
+  _perform() {
+    return this.handler.apply(this, this.args)
+  }
+
+  perform() {
+    let already_finished = false;
+
+    return new Promise((resolve, reject) => {
+      const callResolve = (result: unknown) => {
+        if (!already_finished) {
+          already_finished = true;
+          resolve(result);
+        }
+      }
+
+      const callReject = (ex: unknown) => {
+        if (!already_finished) {
+          already_finished = true;
+          reject(ex);
+        }
+      }
+
+      this._perform().then(callResolve, callReject);
+      this.on('cancel', callReject);
+    });
   }
 }

@@ -1,3 +1,4 @@
+import util from 'util';
 import 'colors';
 
 import { Transform, TransformCallback } from 'stream'
@@ -27,11 +28,12 @@ export interface IDeathInfo {
 
 enum EWorkerState {
   IDLE = 'IDLE',
-  WORKING = 'WORKING'
+  WORKING = 'WORKING',
+  CLOSING = 'CLOSING',
+  CLOSED = 'CLOSED',
 }
 
 let counter = 0;
-
 const SHUTDOWN_TIMEOUT = 10000;
 
 export default class PeanarWorker extends Transform {
@@ -40,28 +42,44 @@ export default class PeanarWorker extends Transform {
   private queue: string;
   private n: number;
   private state: EWorkerState = EWorkerState.IDLE;
+  private activeJob?: PeanarJob;
 
   private destroy_cb?: (err: Error | null) => void;
   private _destroy_timeout?: NodeJS.Timeout;
+  private _shutdown_timeout: number = SHUTDOWN_TIMEOUT;
 
   constructor(app: PeanarApp, channel: ChannelN, queue: string) {
     super({
       objectMode: true
-    })
+    });
 
-    this.app = app
-    this.channel = channel
-    this.queue = queue
+    this.app = app;
+    this.channel = channel;
+    this.queue = queue;
     this.n = counter++;
+  }
+
+  async shutdown(timeout?: number) {
+    if (timeout) this._shutdown_timeout = timeout;
+
+    const destroy = util.promisify(this.destroy);
+    await destroy.call(this, undefined);
   }
 
   _destroy(error: Error | null, callback: (error: Error | null) => void) {
     if (this.state === EWorkerState.IDLE) {
+      this.state = EWorkerState.CLOSED;
       return callback(null);
     }
     else {
-      this.destroy_cb = callback;
-      this._destroy_timeout = setTimeout(callback, SHUTDOWN_TIMEOUT)
+      this.state = EWorkerState.CLOSING;
+
+      this.destroy_cb = (err) => {
+        if (this.activeJob) this.activeJob.cancel();
+        this.state = EWorkerState.CLOSED;
+        setImmediate(() => callback(err));
+      }
+      this._destroy_timeout = setTimeout(this.destroy_cb, this._shutdown_timeout);
     }
   }
 
@@ -132,6 +150,7 @@ export default class PeanarWorker extends Transform {
 
   private async run(job: PeanarJob) {
     this.log('run()');
+    this.activeJob = job;
 
     try {
       const result = await job.perform()
@@ -155,19 +174,21 @@ export default class PeanarWorker extends Transform {
       this.log('FAILURE!');
 
       await job.reject();
+    } finally {
+      this.activeJob = undefined;
     }
   }
 
   _transform(delivery: IDelivery, _encoding: string, cb: TransformCallback) {
     if (this.app.state !== "RUNNING") {
-      this.log('Received job while shutting down. Rejecting...');
+      this.log(`Received job ${Number(delivery.envelope.deliveryTag)} while shutting down. Rejecting...`);
       this.channel.basicReject(delivery.envelope.deliveryTag, true);
       return cb();
     }
 
     this.state = EWorkerState.WORKING;
 
-    const job = this._getJob(delivery)
+    const job = this._getJob(delivery);
 
     const done = () => {
       this.log('Worker state: Idle');
