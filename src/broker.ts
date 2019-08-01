@@ -78,21 +78,23 @@ export default class PeanarBroker {
     if (!this.channel) throw new PeanarAdapterError('Not connected!')
     if (this.declared_exchanges.includes(exchange)) return
 
-    debug(`PeanarBroker: declareExchange('${exchange}')`)
+    debug(`PeanarBroker: declareExchange('${exchange}')`);
 
     await this.channel.declareExchange({
       name: exchange,
       type,
       durable: true,
       arguments: {}
-    }, false)
+    }, false);
+
+    this.declared_exchanges.push(exchange);
   }
 
   async declareQueue(queue: string, args: IQueueArgs = {}, bindings: {exchange: string; routingKey: string}[] = []) {
     if (!this.channel) throw new PeanarAdapterError('Not connected!')
     if (this.declared_queues.includes(queue)) return
 
-    debug(`PeanarBroker: declareQueue('${queue}')`)
+    debug(`PeanarBroker: declareQueue('${queue}')`);
 
     await this.channel.declareQueue({
       name: queue,
@@ -100,7 +102,9 @@ export default class PeanarBroker {
       exclusive: false,
       auto_delete: false,
       arguments: args
-    })
+    });
+
+    this.declared_queues.push(queue);
 
     for (const b of bindings || []) {
       if (b.exchange === '') continue;
