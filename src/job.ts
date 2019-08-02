@@ -1,3 +1,6 @@
+import debugFn from 'debug';
+const debug = debugFn('peanar');
+
 import { EventEmitter } from "events";
 import ChannelN from "ts-amqp/dist/classes/ChannelN";
 import { PeanarAdapterError, PeanarJobError, PeanarJobCancelledError } from "./exceptions";
@@ -75,7 +78,7 @@ export default class PeanarJob extends EventEmitter {
 
     if (!this.cancelled) {
       this.channel.basicAck(this.deliveryTag, false);
-      this.app.log(`PeanarJob#${this.id}: Acknowledged!`);
+      debug(`PeanarJob#${this.id}: Acknowledged!`);
     }
   }
 
@@ -87,14 +90,14 @@ export default class PeanarJob extends EventEmitter {
       throw new PeanarJobError("Worker: No deliveryTag set!");
 
     if (this.max_retries < 0 || this.attempt <= this.max_retries) {
-      this.app.log(`PeanarJob#${this.id}: Trying again...`);
+      debug(`PeanarJob#${this.id}: Trying again...`);
       await this._declareRetryQueues();
 
-      this.app.log(`PeanarJob#${this.id}: Rejecting to retry queue...`);
+      debug(`PeanarJob#${this.id}: Rejecting to retry queue...`);
       this.channel.basicReject(this.deliveryTag, false);
     } else {
       // No attempts left. Publish to error exchange for manual investigation.
-      this.app.log(`PeanarJob#${this.id}: No retries. Writing to error exchange!`);
+      debug(`PeanarJob#${this.id}: No retries. Writing to error exchange!`);
 
       this.channel.json.write({
         routing_key: this.def.routingKey,

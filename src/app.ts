@@ -2,7 +2,7 @@ import uuid from 'uuid';
 import debugFn from 'debug';
 const debug = debugFn('peanar');
 
-import { PeanarInternalError } from './exceptions';
+import { PeanarInternalError, PeanarJobError } from './exceptions';
 import Broker from './broker';
 import Worker, { IWorkerResult } from './worker';
 import PeanarJob from './job';
@@ -12,6 +12,7 @@ import Consumer from 'ts-amqp/dist/classes/Consumer';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import { IQueueArgs } from 'ts-amqp/dist/interfaces/Queue';
 import ChannelN from 'ts-amqp/dist/classes/ChannelN';
+import Registry from './registry';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -19,6 +20,7 @@ export interface IPeanarJobDefinitionInput {
   routingKey?: string;
   exchange?: string;
   replyTo?: string;
+  handler: (...args: any[]) => Promise<any>;
 
   expires?: number;
 
@@ -85,7 +87,7 @@ enum EAppState {
 }
 
 export default class PeanarApp {
-  public registry: Map<string, Map<string, IPeanarJobDefinition>> = new Map;
+  public registry = new Registry;
 
   public log: (...args: any[]) => any;
   public broker: Broker;
@@ -93,6 +95,8 @@ export default class PeanarApp {
 
   protected consumers: Map<string, Consumer[]> = new Map;
   protected workers: Map<string, Worker[]> = new Map;
+  protected jobs: Map<string, (...args: unknown[]) => Promise<unknown>> = new Map;
+
   protected _connectionPromise?: Promise<ChannelN>;
 
   public state: EAppState = EAppState.RUNNING;
@@ -121,38 +125,11 @@ export default class PeanarApp {
   }
 
   public async shutdown(timeout?: number) {
-    this.log('Peanar: shutdown()')
+    this.log('Peanar: shutdown()');
 
     this.state = EAppState.CLOSING;
     await this._shutdown(timeout);
     this.state = EAppState.CLOSED;
-  }
-
-  protected _registerJob(fn: (...args: any[]) => Promise<any>, def: IPeanarJobDefinitionInput) {
-    debug(`Peanar: _registerJob('${def.queue}', ${JSON.stringify(def, null, 2)})`)
-
-    const job_def: IPeanarJobDefinition = {
-      routingKey: def.queue,
-      exchange: '',
-      ...def,
-      name: (def.name && def.name.length) ? def.name : fn.name,
-      handler: fn
-    }
-
-    let queue_mapping = this.registry.get(job_def.queue)
-
-    if (!queue_mapping) {
-      queue_mapping = new Map
-      this.registry.set(job_def.queue, queue_mapping)
-    }
-
-    if (queue_mapping.has(job_def.name)) {
-      throw new PeanarInternalError('Job already registered!')
-    }
-
-    queue_mapping.set(job_def.name, job_def)
-
-    return job_def
   }
 
   protected _registerWorker(queue: string, worker: Worker) {
@@ -167,12 +144,14 @@ export default class PeanarApp {
     this.consumers.set(queue, consumers);
   }
 
-  public getJobDefinition(queue: string, name: string): IPeanarJobDefinition | undefined {
-    const queue_mapping = this.registry.get(queue);
+  public call(name: string, args: unknown[]) {
+    const enqueue = this.jobs.get(name);
 
-    if (!queue_mapping) return;
+    if (typeof enqueue !== 'function') {
+      throw new PeanarInternalError(`Job ${name} is not registered with the app.`);
+    }
 
-    return queue_mapping.get(name);
+    return enqueue.apply(this, args);
   }
 
   public async enqueueJob(def: Omit<IPeanarJobDefinition, 'handler'>, req: IPeanarRequest) {
@@ -266,27 +245,25 @@ export default class PeanarApp {
     return res;
   }
 
-  public job(fn: (...args: any[]) => Promise<any>, def: IPeanarJobDefinitionInput) {
-    const job_name = (def.name && def.name.length) ? def.name : fn.name
-
-    debug(`Peanar: job('${def.queue}', '${job_name}')`)
-
-    const job_def = this._registerJob(fn, def)
+  public job(def: IPeanarJobDefinitionInput) {
+    const job_def = this.registry.registerJob(def);
+    debug(`Peanar: job('${def.queue}', '${job_def.name}')`);
 
     const self = this
 
     function enqueueJob() {
-      debug(`Peanar: job.enqueueJobLater('${job_name}', ${[...arguments]})`)
-      return self.enqueueJob(job_def, self._prepareJobRequest(job_name, [...arguments]))
+      debug(`Peanar: job.enqueueJobLater('${job_def.name}', ${[...arguments]})`)
+      return self.enqueueJob(job_def, self._prepareJobRequest(job_def.name, [...arguments]))
     }
 
     enqueueJob.rpc = async function() {}
 
+    this.jobs.set(job_def.name, enqueueJob);
     return enqueueJob;
   }
 
   private async _declareQueue(queue: string) {
-    const defs = this.registry.get(queue);
+    const defs = this.registry.getQueueDefs(queue);
 
     if (defs) {
       const def = [...defs.values()].find(d => d.retry_exchange);
@@ -361,7 +338,7 @@ export default class PeanarApp {
 
     const worker_queues = (Array.isArray(queues) && queues.length > 0)
       ? queues
-      : [...this.registry.keys()];
+      : this.registry.queues;
 
     await Promise.all(worker_queues.map(q => this._declareQueue(q)));
 

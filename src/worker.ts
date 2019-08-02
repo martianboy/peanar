@@ -1,3 +1,6 @@
+import debugFn from 'debug';
+const debug = debugFn('peanar');
+
 import util from 'util';
 import 'colors';
 
@@ -6,6 +9,7 @@ import PeanarApp, { IPeanarRequest, IPeanarJob } from './app';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 import ChannelN from 'ts-amqp/dist/classes/ChannelN';
 import PeanarJob from './job';
+import { PeanarInternalError } from './exceptions';
 
 export type IWorkerResult = {
   status: 'SUCCESS';
@@ -84,15 +88,16 @@ export default class PeanarWorker extends Transform {
   }
 
   public log(msg: string) {
-    return this.app.log(`${`PeanarWorker#${this.n}:`.bold} ${msg}`);
+    return debug(`${`PeanarWorker#${this.n}:`.bold} ${msg}`);
   }
 
   getJobDefinition(name: string) {
-    const queue_mapping = this.app.registry.get(this.queue)
-    
-    if (!queue_mapping) return
-
-    return queue_mapping.get(name)
+    try {
+      return this.app.registry.getJobDefinition(this.queue, name);
+    } catch (ex) {
+      if (ex instanceof PeanarInternalError) {}
+      else throw ex;
+    }
   }
 
   _parseBody(body: Buffer): IPeanarRequest | null {
