@@ -6,13 +6,17 @@ function dummy() {
   });
 }
 
-async function main() {
-  const app = new PeanarApp();
+const app = new PeanarApp({
+  prefetch: 1
+});
 
+async function main() {
   const enqueueDummy = app.job({
     handler: dummy,
     queue: 'dummy'
   });
+
+  await app.declareAmqResources();
 
   await Promise.all(
     Array(4)
@@ -26,13 +30,20 @@ async function main() {
     prefetch: 1
   });
 
-  await Promise.all(
-    Array(4)
-      .fill(0)
-      .map(() => enqueueDummy())
-  );
+  // await Promise.all(
+  //   Array(4)
+  //     .fill(0)
+  //     .map(() => enqueueDummy())
+  // );
 
-  app.shutdown(20000);
+  // app.shutdown(20000);
 }
+
+async function shutdown() {
+  await app.shutdown(20000);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 main().then(() => {}, ex => console.error(ex));

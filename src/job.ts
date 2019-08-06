@@ -1,5 +1,5 @@
 import debugFn from 'debug';
-const debug = debugFn('peanar');
+const debug = debugFn('peanar:job');
 
 import { EventEmitter } from "events";
 import ChannelN from "ts-amqp/dist/classes/ChannelN";
@@ -118,7 +118,7 @@ export default class PeanarJob extends EventEmitter {
   }
 
   enqueue() {
-    return this.app.enqueueJob(this.def, {
+    return this.app.enqueueJobRequest(this.def, {
       id: this.id,
       args: this.args,
       name: this.name,
@@ -139,17 +139,7 @@ export default class PeanarJob extends EventEmitter {
     return `${this.def.queue}.error`;
   }
 
-  protected async _declareRetryExchanges() {
-    const retry_name = this.retry_name;
-    const error_name = this.error_name;
-    const requeue_name = this.requeue_name;
-
-    for (const name of [retry_name, error_name, requeue_name]) {
-      await this.app.broker.declareExchange(name, 'topic');
-    }
-  }
-
-  protected async _declareRetryQueue() {
+  protected async _declareRetryQueues() {
     const retry_name = this.retry_name;
     const requeue_name = this.requeue_name;
 
@@ -164,43 +154,12 @@ export default class PeanarJob extends EventEmitter {
       durable: true,
       exclusive: false
     });
-  }
 
-  protected _declareErrorQueue() {
-    const error_name = this.error_name;
-
-    return this.app.broker.declareQueue(error_name, {}, [{
-      exchange: error_name,
-      routingKey: '#'
-    }]);
-  }
-
-  protected _bindRetryQueue() {
-    const retry_name = this.retry_name;
-
-    return this.channel.bindQueue({
+    await this.channel.bindQueue({
       exchange: retry_name,
       queue: retry_name,
       routing_key: '#'
     });
-  }
-
-  protected _bindToRequeueExchange() {
-    const requeue_name = this.requeue_name;
-
-    return this.channel.bindQueue({
-      exchange: requeue_name,
-      queue: this.def.queue,
-      routing_key: '#'
-    });
-  }
-
-  protected async _declareRetryQueues() {
-    await this._declareRetryExchanges();
-    await this._declareRetryQueue();
-    await this._declareErrorQueue();
-    await this._bindRetryQueue();
-    await this._bindToRequeueExchange();
   }
 
   retry() {
@@ -208,7 +167,7 @@ export default class PeanarJob extends EventEmitter {
       console.warn('Illegal PeanarJob.retry()!');
     }
 
-    return this.app.enqueueJob(this.def, {
+    return this.app.enqueueJobRequest(this.def, {
       id: this.id,
       args: this.args,
       name: this.name,

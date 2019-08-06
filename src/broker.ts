@@ -1,119 +1,119 @@
 import debugFn from 'debug';
-const debug = debugFn('peanar');
+const debug = debugFn('peanar:broker');
 
-import PeanarApp from './app';
 import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Connection } from 'ts-amqp';
-import ChannelN from 'ts-amqp/dist/classes/ChannelN';
+import ChannelPool from 'ts-amqp/dist/classes/ChannelPool';
 import { PeanarAdapterError } from './exceptions';
-import { EExchangeType } from 'ts-amqp/dist/interfaces/Exchange';
-import { IQueueArgs } from 'ts-amqp/dist/interfaces/Queue';
+import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
+import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
+import { ICloseReason } from 'ts-amqp/dist/interfaces/Protocol';
+import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
+
+interface IBrokerOptions {
+  connection?: IConnectionParams;
+  poolSize: number;
+  prefetch?: number;
+}
 
 /**
  * Peanar's broker adapter
  */
 export default class PeanarBroker {
-  private app: PeanarApp;
-  private config?: IConnectionParams;
+  private config: IBrokerOptions;
   private conn?: Connection;
-  public channel?: ChannelN;
+  private pool?: ChannelPool;
 
-  private declared_exchanges: string[] = [
-    '',
-    'amq.direct',
-    'amq.fanout'
-  ];
-  private declared_queues: string[] = [];
+  private _connectPromise?: Promise<void>;
 
-  constructor(app: PeanarApp, config?: IConnectionParams) {
+  constructor(config: IBrokerOptions) {
     this.config = config
-    this.app = app
+  }
+
+  private _connect = async () => {
+    debug('_connect()');
+
+    const conn = (this.conn = new Connection(this.config.connection));
+    this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
+
+    await conn.start();
+    await this.pool.open();
+
+    conn.once('close', (err?: ICloseReason) => {
+      this._connectPromise = undefined;
+      if (err && err.reply_code < 400) {
+        this.connect()
+      }
+    });
   }
 
   /**
    * Initializes adapter connection and channel
    */
-  connect = async () => {
-    debug('PeanarBroker: connect()');
+  public connect = async () => {
+    if (this._connectPromise) return this._connectPromise;
 
-    const conn = (this.conn = new Connection(this.config));
-    await conn.start();
-
-    conn.on('close', this.connect);
-
-    this.channel = await conn.channel();
-    this.channel.on('channelClose', this.reconnectChannel);
-
-    return this.channel;
+    return (this._connectPromise = this._connect());
   }
 
-  private reconnectChannel = async () => {
-    if (this.conn && this.conn.state !== 'closing') {
-      this.channel = await this.conn.channel();
-    }
-  }
+  public async shutdown() {
+    debug('shutdown()');
 
-  async prefetch(n: number) {
-    if (!this.channel) throw new PeanarAdapterError('Prefetch: Strange! No open channels found!')
+    if (!this.pool) throw new PeanarAdapterError('Shutdown: Strange! Channel pool has not been initialized!');
+    if (!this.conn) throw new PeanarAdapterError('Shutdown: Not connected!');
 
-    this.channel.basicQos(n, false)
-  }
-
-  async closeConsumers() {
-    if (!this.channel) throw new PeanarAdapterError('Shutdown: Strange! No open channels found!');
-  }
-
-  async shutdown() {
-    debug('PeanarAdapter: shutdown()')
-
-    if (!this.channel) throw new PeanarAdapterError('Shutdown: Strange! No open channels found!')
-    if (!this.conn) throw new PeanarAdapterError('Shutdown: Not connected!')
-
-    this.channel.off('channelClose', this.reconnectChannel);
+    await this.pool.close();
     this.conn.off('close', this.connect);
     await this.conn.close();
   }
 
-  async declareExchange(exchange: string, type: EExchangeType = 'direct') {
-    if (!this.channel) throw new PeanarAdapterError('Not connected!')
-    if (this.declared_exchanges.includes(exchange)) return
+  public async queues(queues: IQueue[]) {
+    await this.connect();
+    if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    debug(`PeanarBroker: declareExchange('${exchange}')`);
-
-    await this.channel.declareExchange({
-      name: exchange,
-      type,
-      durable: true,
-      arguments: {}
-    }, false);
-
-    this.declared_exchanges.push(exchange);
+    return await Promise.all(this.pool.mapOver(queues, async (ch, queue) => {
+      return ch.declareQueue(queue);
+    }));
   }
 
-  async declareQueue(queue: string, args: IQueueArgs = {}, bindings: {exchange: string; routingKey: string}[] = []) {
-    if (!this.channel) throw new PeanarAdapterError('Not connected!')
-    if (this.declared_queues.includes(queue)) return
+  public async exchanges(exchanges: IExchange[]) {
+    await this.connect();
+    if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    debug(`PeanarBroker: declareQueue('${queue}')`);
+    return await Promise.all(this.pool.mapOver(exchanges, async (ch, exchange) => {
+      return ch.declareExchange(exchange);
+    }));
+  }
 
-    await this.channel.declareQueue({
-      name: queue,
-      durable: true,
-      exclusive: false,
-      auto_delete: false,
-      arguments: args
-    });
+  public async bindings(bindings: IBinding[]) {
+    await this.connect();
+    if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    this.declared_queues.push(queue);
+    return await Promise.all(this.pool.mapOver(bindings, async (ch, binding) => {
+      return ch.bindQueue(binding);
+    }));
+  }
 
-    for (const b of bindings || []) {
-      if (b.exchange === '') continue;
+  public async consume(queues: string[]) {
+    await this.connect();
+    if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-      await this.channel.bindQueue({
-        exchange: b.exchange,
+    return await this.pool.mapOver(queues, async (ch, queue) => {
+      return {
         queue,
-        routing_key: b.routingKey
-      });
-    }
+        channel: ch,
+        consumer: await ch.basicConsume(queue)
+      };
+    });
+  }
+
+  public async publish(message: IMessage<unknown>) {
+    await this.connect();
+    if (!this.pool) throw new PeanarAdapterError('Not connected!');
+
+    const { channel, release } = await this.pool.acquire();
+    debug(`publish to channel ${channel.channelNumber}`);
+    channel.json.write(message);
+    release();
   }
 }

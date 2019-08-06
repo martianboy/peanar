@@ -1,5 +1,5 @@
 import debugFn from 'debug';
-const debug = debugFn('peanar');
+const debug = debugFn('peanar:worker');
 
 import util from 'util';
 import 'colors';
@@ -93,7 +93,7 @@ export default class PeanarWorker extends Transform {
 
   getJobDefinition(name: string) {
     try {
-      return this.app.registry.getJobDefinition(this.queue, name);
+      return this.app.registry.getJobDefinition(name);
     } catch (ex) {
       if (ex instanceof PeanarInternalError) {}
       else throw ex;
@@ -121,15 +121,15 @@ export default class PeanarWorker extends Transform {
       return
     }
 
-    this.log(`_getJob(${body.name})`);
+    debug(`_getJob(${body.name})`);
 
-    const def = this.getJobDefinition(body.name)
+    const def = this.getJobDefinition(body.name);
     if (!def) {
       console.warn(`PeanarWorker#_getJob: No handler registered for ${this.queue}.${body.name}!`)
       return
     }
 
-    const headers = delivery.properties.headers
+    const headers = delivery.properties.headers;
     const deathInfo = headers && Array.isArray(headers['x-death'])
       ? (headers['x-death'] as IDeathInfo[]).find(d => d.queue === def.queue)
       : undefined;
@@ -143,7 +143,7 @@ export default class PeanarWorker extends Transform {
       args: body.args,
       id: body.id,
       attempt: deathInfo ? Number(deathInfo.count) + 1 : 1
-    }
+    };
 
     if (delivery.properties.replyTo) {
       req.replyTo = delivery.properties.replyTo;
@@ -158,7 +158,7 @@ export default class PeanarWorker extends Transform {
     this.activeJob = job;
 
     try {
-      const result = await job.perform()
+      const result = await job.perform();
 
       this.push({
         status: 'SUCCESS',
@@ -186,19 +186,14 @@ export default class PeanarWorker extends Transform {
 
   _transform(delivery: IDelivery, _encoding: string, cb: TransformCallback) {
     if (this.app.state !== "RUNNING") {
-      this.log(`Received job ${Number(delivery.envelope.deliveryTag)} while shutting down. Rejecting...`);
-      this.channel.basicReject(delivery.envelope.deliveryTag, true);
+      this.log(`Received job ${Number(delivery.envelope.deliveryTag)} while shutting down. Holding on to it...`);
       return cb();
     }
 
-    this.state = EWorkerState.WORKING;
-
-    const job = this._getJob(delivery);
-
-    const done = () => {
+    const done = (ex?: Error | null) => {
       this.log('Worker state: Idle');
       this.state = EWorkerState.IDLE;
-      cb();
+      cb(ex);
 
       if (this.destroy_cb) {
         this.log('Destroying worker!');
@@ -210,10 +205,19 @@ export default class PeanarWorker extends Transform {
       }
     }
 
+    this.state = EWorkerState.WORKING;
+
+    let job = undefined;
+    try {
+      job = this._getJob(delivery);
+    } catch (ex) {
+      return done(ex);
+    }
+
     if (!job) {
       return done();
     }
 
-    this.run(job).then(_ => done(), _ => done());
+    this.run(job).then(_ => done(), done);
   }
 }
