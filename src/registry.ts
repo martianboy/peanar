@@ -54,7 +54,7 @@ export default class Registry {
     }
 
     if (def.retry_exchange && def.retry_exchange.length > 0) {
-      this.registerExchange(def.retry_exchange);
+      this.registerExchange(def.retry_exchange, 'topic');
       this.registerExchange(`${def.queue}.retry-requeue`, 'topic');
       this.registerBinding(`${def.queue}.retry-requeue`, '#', def.queue);
     }
