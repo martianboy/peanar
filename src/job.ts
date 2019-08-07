@@ -3,7 +3,7 @@ const debug = debugFn('peanar:job');
 
 import { EventEmitter } from "events";
 import ChannelN from "ts-amqp/dist/classes/ChannelN";
-import { PeanarAdapterError, PeanarJobError, PeanarJobCancelledError } from "./exceptions";
+import { PeanarAdapterError, PeanarJobError, PeanarJobCancelledError, PeanarInternalError } from "./exceptions";
 import PeanarApp, { IPeanarRequest, IPeanarJobDefinition } from "./app";
 
 const fib_seq = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584];
@@ -140,6 +140,8 @@ export default class PeanarJob extends EventEmitter {
   }
 
   protected async _declareRetryQueues() {
+    if (!this.def.retry_exchange) throw new PeanarInternalError('Attempting retry without a retry_exchange specified.');
+
     const retry_name = this.retry_name;
     const requeue_name = this.requeue_name;
 
@@ -156,7 +158,7 @@ export default class PeanarJob extends EventEmitter {
     });
 
     await this.channel.bindQueue({
-      exchange: retry_name,
+      exchange: this.def.retry_exchange,
       queue: retry_name,
       routing_key: '#'
     });
