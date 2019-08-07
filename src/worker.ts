@@ -173,7 +173,7 @@ export default class PeanarWorker extends Transform {
       this.push({
         status: 'FAILURE',
         job,
-        err: ex
+        error: ex
       });
 
       this.log('FAILURE!');
