@@ -145,6 +145,7 @@ export default class PeanarJob extends EventEmitter {
     const retry_name = this.retry_name;
     const requeue_name = this.requeue_name;
 
+    debug(`declare retry queue ${retry_name}`);
     await this.channel.declareQueue({
       name: retry_name,
       arguments: {
@@ -157,6 +158,7 @@ export default class PeanarJob extends EventEmitter {
       exclusive: false
     });
 
+    debug(`bind retry exchange ${this.def.retry_exchange} to retry queue ${retry_name}`);
     await this.channel.bindQueue({
       exchange: this.def.retry_exchange,
       queue: retry_name,
