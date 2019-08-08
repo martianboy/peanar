@@ -9,12 +9,12 @@
             "request": "launch",
             "name": "Launch Program",
             "protocol": "inspector",
-            "args": ["${workspaceRoot}/examples/workers.ts"],
+            "args": ["${workspaceRoot}/examples/retry.ts"],
             "cwd": "${workspaceRoot}",
             "runtimeArgs": ["-r", "ts-node/register"],
             "internalConsoleOptions": "openOnSessionStart",
             "env": {
-                "DEBUG": "peanar"
+                "DEBUG": "peanar:*,amqp:*"
             }
         }
     ]
