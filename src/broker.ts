@@ -22,9 +22,9 @@ interface IBrokerOptions {
 export default class PeanarBroker {
   private config: IBrokerOptions;
   private conn?: Connection;
-  private pool?: ChannelPool;
-
   private _connectPromise?: Promise<void>;
+
+  public pool?: ChannelPool;
 
   constructor(config: IBrokerOptions) {
     this.config = config
@@ -94,14 +94,18 @@ export default class PeanarBroker {
     }));
   }
 
-  public async consume(queues: string[]) {
-    await this.connect();
+  public consume(queue: string) {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    return await this.pool.mapOver(queues, async (ch, queue) => {
+    return this.pool.acquireAndRun(ch => ch.basicConsume(queue));
+  }
+
+  public consumeOver(queues: string[]) {
+    if (!this.pool) throw new PeanarAdapterError('Not connected!');
+
+    return this.pool.mapOver(queues, async (ch, queue) => {
       return {
         queue,
-        channel: ch,
         consumer: await ch.basicConsume(queue)
       };
     });

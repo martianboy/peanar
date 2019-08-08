@@ -258,8 +258,20 @@ export default class PeanarApp {
     for (const c of consumers) c.resume();
   }
 
-  protected async _startWorker(queue: string, consumer: Consumer, channel: ChannelN) {
-    const worker = new Worker(this, channel, queue);
+  protected async _startWorker(queue: string, consumer: Consumer) {
+    const worker = new Worker(this, consumer.channel, queue);
+
+    consumer.once('cancel', async (args: { server: boolean }) => {
+      consumer.unpipe(worker);
+      const queue_consumers = this.consumers.get(queue) || [];
+      queue_consumers.splice(queue_consumers.indexOf(consumer), 1);
+
+      if (args.server) {
+        const new_consumer = await this.broker.consume(queue);
+        this._registerConsumer(queue, new_consumer);
+        consumer.pipe(worker);
+      }
+    });
 
     this._registerConsumer(queue, consumer);
     this._registerWorker(queue, worker);
@@ -292,10 +304,10 @@ export default class PeanarApp {
 
     const queues_to_start = [...worker_queues].flatMap(q => Array(concurrency).fill(q));
 
-    return Promise.all((await this.broker.consume(queues_to_start)).map(async p => {
-      const { channel, queue, consumer} = await p;
+    return Promise.all((await this.broker.consumeOver(queues_to_start)).map(async p => {
+      const { queue, consumer} = await p;
 
-      return this._startWorker(queue, consumer, channel);
+      return this._startWorker(queue, consumer);
     }));
   }
 }
