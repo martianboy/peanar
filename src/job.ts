@@ -96,6 +96,11 @@ export default class PeanarJob extends EventEmitter {
       debug(`PeanarJob#${this.id}: Rejecting to retry queue...`);
       this.channel.basicReject(this.deliveryTag, false);
     } else {
+      if (!this.def.error_exchange || this.def.error_exchange.length < 1) {
+        debug(`PeanarJob#${this.id}: No retries left. Discarding...`);
+        return;
+      }
+
       // No attempts left. Publish to error exchange for manual investigation.
       debug(`PeanarJob#${this.id}: No retries. Writing to error exchange!`);
 
