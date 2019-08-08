@@ -10,6 +10,7 @@ import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 import ChannelN from 'ts-amqp/dist/classes/ChannelN';
 import PeanarJob from './job';
 import { PeanarInternalError } from './exceptions';
+import CloseReason from 'ts-amqp/dist/utils/CloseReason';
 
 export type IWorkerResult = {
   status: 'SUCCESS';
@@ -42,7 +43,7 @@ const SHUTDOWN_TIMEOUT = 10000;
 
 export default class PeanarWorker extends Transform {
   private app: PeanarApp;
-  private channel: ChannelN;
+  private _channel: ChannelN;
   private queue: string;
   private n: number;
   private state: EWorkerState = EWorkerState.IDLE;
@@ -58,9 +59,25 @@ export default class PeanarWorker extends Transform {
     });
 
     this.app = app;
-    this.channel = channel;
     this.queue = queue;
     this.n = counter++;
+
+    this._channel = channel;
+    this._channel.once('channelClose', this.onChannelClosed);
+  }
+
+  get channel() { return this._channel; }
+  set channel(ch) {
+    if (this._channel) {
+      this._channel.off('channelClose', this.onChannelClosed);
+    }
+
+    this._channel = ch;
+    this._channel.once('channelClose', this.onChannelClosed);
+  }
+
+  onChannelClosed = (err: CloseReason) => {
+    if (this.activeJob) this.activeJob.cancel(err || 'Channel closed');
   }
 
   async shutdown(timeout?: number) {
@@ -150,7 +167,7 @@ export default class PeanarWorker extends Transform {
       req.correlationId = delivery.properties.correlationId;
     }
 
-    return new this.app.jobClass(req, def, this.app, this.channel);
+    return new this.app.jobClass(req, def, this.app, this._channel);
   }
 
   private async run(job: PeanarJob) {
@@ -218,6 +235,6 @@ export default class PeanarWorker extends Transform {
       return done();
     }
 
-    this.run(job).then(_ => done(), done);
+    this.run(job).catch(done).then(_ => done());
   }
 }
