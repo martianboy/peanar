@@ -150,25 +150,33 @@ export default class PeanarJob extends EventEmitter {
     const retry_name = this.retry_name;
     const requeue_name = this.requeue_name;
 
-    debug(`declare retry queue ${retry_name}`);
-    await this.channel.declareQueue({
-      name: retry_name,
-      arguments: {
-        expires: 2 * (this.def.retry_delay || 60000),
-        messageTtl: this.def.retry_delay || 60000,
-        deadLetterExchange: requeue_name
-      },
-      auto_delete: false,
-      durable: true,
-      exclusive: false
-    });
+    try {
+      debug(`declare retry queue ${retry_name}`);
+      await this.channel.declareQueue({
+        name: retry_name,
+        arguments: {
+          expires: 2 * (this.def.retry_delay || 60000),
+          messageTtl: this.def.retry_delay || 60000,
+          deadLetterExchange: requeue_name
+        },
+        auto_delete: false,
+        durable: true,
+        exclusive: false
+      });
 
-    debug(`bind retry exchange ${this.def.retry_exchange} to retry queue ${retry_name}`);
-    await this.channel.bindQueue({
-      exchange: this.def.retry_exchange,
-      queue: retry_name,
-      routing_key: '#'
-    });
+      debug(`bind retry exchange ${this.def.retry_exchange} to retry queue ${retry_name}`);
+      await this.channel.bindQueue({
+        exchange: this.def.retry_exchange,
+        queue: retry_name,
+        routing_key: '#'
+      });
+
+      debug('_declareRetryQueues(): done');
+    }
+    catch (ex) {
+      console.error(ex);
+      throw ex;
+    }
   }
 
   retry() {
