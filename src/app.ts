@@ -12,6 +12,7 @@ import Consumer from 'ts-amqp/dist/classes/Consumer';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import ChannelN from 'ts-amqp/dist/classes/ChannelN';
 import Registry from './registry';
+import CloseReason from 'ts-amqp/dist/utils/CloseReason';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -261,12 +262,12 @@ export default class PeanarApp {
   protected async _startWorker(queue: string, consumer: Consumer) {
     const worker = new Worker(this, consumer.channel, queue);
 
-    consumer.once('cancel', async (args: { server: boolean }) => {
+    consumer.channel.once('channelClose', async (reason: CloseReason) => {
       consumer.unpipe(worker);
       const queue_consumers = this.consumers.get(queue) || [];
       queue_consumers.splice(queue_consumers.indexOf(consumer), 1);
 
-      if (args.server) {
+      if (reason.reply_code >= 400) {
         const new_consumer = await this.broker.consume(queue);
         this._registerConsumer(queue, new_consumer);
         consumer.pipe(worker);
