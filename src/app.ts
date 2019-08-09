@@ -267,11 +267,14 @@ export default class PeanarApp {
     const worker = new Worker(this, consumer.channel, queue);
 
     consumer.channel.once('channelClose', async (reason: CloseReason) => {
+      debug(`Consumer channel on queue '${queue}' closed abruptly.`);
+
       consumer.unpipe(worker);
       const queue_consumers = this.consumers.get(queue) || [];
       queue_consumers.splice(queue_consumers.indexOf(consumer), 1);
 
-      if (reason.reply_code >= 400) {
+      if (reason && reason.reply_code >= 400) {
+        debug(`Openning another consumer on queue '${queue}'.`);
         const new_consumer = await this.broker.consume(queue);
         this._registerConsumer(queue, new_consumer);
         consumer.pipe(worker);
