@@ -90,14 +90,19 @@ export default class PeanarWorker extends Transform {
   _destroy(error: Error | null, callback: (error: Error | null) => void) {
     if (this.state === EWorkerState.IDLE) {
       this.state = EWorkerState.CLOSED;
+      this.log('Worker state: Closed');
       return callback(null);
     }
     else {
       this.state = EWorkerState.CLOSING;
 
       this.destroy_cb = (err) => {
-        if (this.activeJob) this.activeJob.cancel();
+        if (this.activeJob) {
+          this.log('cancelling active job')
+          this.activeJob.cancel();
+        }
         this.state = EWorkerState.CLOSED;
+        this.log('Worker state: Closed');
         setImmediate(() => callback(err));
       }
       this._destroy_timeout = setTimeout(this.destroy_cb, this._shutdown_timeout);
@@ -213,7 +218,6 @@ export default class PeanarWorker extends Transform {
       cb(ex);
 
       if (this.destroy_cb) {
-        this.log('Destroying worker!');
         this.destroy_cb(null);
       }
       if (this._destroy_timeout) {

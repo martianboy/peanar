@@ -116,9 +116,13 @@ export default class PeanarApp {
 
   protected async _shutdown(timeout?: number) {
     await Promise.all([...this.consumers.values()].flat().map(c => c.cancel()))
+    debug('shutdown(): consumers cancelled')
+
     await Promise.all([...this.workers.values()].flat().map(w => w.shutdown(timeout)))
+    debug('shutdown(): workers shut down')
 
     await this.broker.shutdown();
+    debug('shutdown(): broker shut down')
   }
 
   public async shutdown(timeout?: number) {
