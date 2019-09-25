@@ -232,10 +232,13 @@ export default class PeanarWorker extends Transform {
     try {
       job = this._getJob(delivery);
     } catch (ex) {
+      this.channel.basicReject(delivery.envelope.deliveryTag, false);
       return done(ex);
     }
 
     if (!job) {
+      this.channel.basicReject(delivery.envelope.deliveryTag, false);
+
       return done();
     }
 
