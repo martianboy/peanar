@@ -117,12 +117,7 @@ export default class PeanarBroker {
 
     const { channel, release } = await this.pool.acquire();
     debug(`publish to channel ${channel.channelNumber}`);
-    if (channel.basicPublishJson(
-      message.exchange || null,
-      message.routing_key,
-      message.properties,
-      message.body
-    )) {
+    if (channel.json.write(message)) {
       release();
       return true;
     } else {
