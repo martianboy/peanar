@@ -41,7 +41,7 @@ export default class PeanarBroker {
 
     conn.once('close', (err?: ICloseReason) => {
       this._connectPromise = undefined;
-      if (err && err.reply_code < 400) {
+      if (err && err.reply_code >= 400) {
         this.connect()
       }
     });
@@ -117,10 +117,17 @@ export default class PeanarBroker {
 
     const { channel, release } = await this.pool.acquire();
     debug(`publish to channel ${channel.channelNumber}`);
-    if (channel.json.write(message)) {
+    if (channel.basicPublishJson(
+      message.exchange || null,
+      message.routing_key,
+      message.properties,
+      message.body
+    )) {
       release();
+      return true;
     } else {
       channel.json.once('drain', release);
+      return false;
     }
   }
 }
