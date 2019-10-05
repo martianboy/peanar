@@ -2,9 +2,9 @@ import debugFn from 'debug';
 const debug = debugFn('peanar:job');
 
 import { EventEmitter } from "events";
-import ChannelN from "ts-amqp/dist/classes/ChannelN";
 import { PeanarAdapterError, PeanarJobError, PeanarJobCancelledError, PeanarInternalError } from "./exceptions";
 import PeanarApp, { IPeanarRequest, IPeanarJobDefinition } from "./app";
+import { Channel } from 'amqplib';
 
 const fib_seq = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584];
 
@@ -31,7 +31,7 @@ export default class PeanarJob extends EventEmitter {
   public handler: (...args: any[]) => Promise<any>;
   public deliveryTag?: bigint;
   public correlationId?: string;
-  public channel: ChannelN;
+  public channel: Channel;
   public app: PeanarApp;
   public def: IPeanarJobDefinition;
 
@@ -44,7 +44,7 @@ export default class PeanarJob extends EventEmitter {
     req: IPeanarRequest,
     def: IPeanarJobDefinition,
     app: PeanarApp,
-    channel: ChannelN
+    channel: Channel
   ) {
     super()
 
@@ -77,7 +77,8 @@ export default class PeanarJob extends EventEmitter {
       throw new PeanarJobError("Worker: No deliveryTag set!");
 
     if (!this.cancelled) {
-      this.channel.basicAck(this.deliveryTag, false);
+      // @ts-ignore
+      this.channel.ack({ fields: { deliveryTag: Number(this.deliveryTag) } }, false);
       debug(`PeanarJob#${this.id}: Acknowledged!`);
     }
   }
@@ -94,7 +95,8 @@ export default class PeanarJob extends EventEmitter {
       await this._declareRetryQueues();
 
       debug(`PeanarJob#${this.id}: Rejecting to retry queue...`);
-      this.channel.basicReject(this.deliveryTag, false);
+      // @ts-ignore
+      this.channel.reject({ fields: { deliveryTag: Number(this.deliveryTag) } }, false);
     } else {
       if (!this.def.error_exchange || this.def.error_exchange.length < 1) {
         debug(`PeanarJob#${this.id}: No retries left. Discarding...`);
@@ -104,19 +106,18 @@ export default class PeanarJob extends EventEmitter {
       // No attempts left. Publish to error exchange for manual investigation.
       debug(`PeanarJob#${this.id}: No retries. Writing to error exchange!`);
 
-      this.channel.json.write({
-        routing_key: this.def.routingKey,
-        exchange: this.error_name,
-        properties: {
-          correlationId: this.correlationId,
-          replyTo: this.def.replyTo
-        },
-        body: {
+      this.channel.publish(
+        this.error_name,
+        this.def.routingKey,
+        Buffer.from(JSON.stringify({
           id: this.id,
           name: this.name,
           args: this.args
+        })),
+        {
+          contentType: 'application/json'
         }
-      });
+      );
 
       return this.ack();
     }
@@ -152,7 +153,7 @@ export default class PeanarJob extends EventEmitter {
 
     try {
       debug(`declare retry queue ${retry_name}`);
-      await this.channel.declareQueue({
+      await this.app.broker.queues([{
         name: retry_name,
         arguments: {
           expires: 2 * (this.def.retry_delay || 60000),
@@ -162,14 +163,14 @@ export default class PeanarJob extends EventEmitter {
         auto_delete: false,
         durable: true,
         exclusive: false
-      });
+      }]);
 
       debug(`bind retry exchange ${this.def.retry_exchange} to retry queue ${retry_name}`);
-      await this.channel.bindQueue({
+      await this.app.broker.bindings([{
         exchange: this.def.retry_exchange,
         queue: retry_name,
         routing_key: '#'
-      });
+      }]);
 
       debug('_declareRetryQueues(): done');
     }

@@ -36,9 +36,11 @@
     "typescript": "^3.6.3"
   },
   "dependencies": {
+    "@types/amqplib": "^0.5.13",
+    "amqplib": "^0.5.5",
     "colors": "^1.4.0",
     "debug": "^4.1.1",
-    "ts-amqp": "^0.7.4",
+    "ts-amqp": "^0.7.6",
     "uuid": "^3.3.3"
   }
 }

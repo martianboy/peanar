@@ -3,16 +3,15 @@ import debugFn from 'debug';
 const debug = debugFn('peanar:app');
 
 import { PeanarInternalError } from './exceptions';
-import Broker from './broker';
+import Broker from './amqplib_compat/broker';
 import Worker, { IWorkerResult } from './worker';
 import PeanarJob from './job';
 import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Writable, TransformCallback } from 'stream';
-import Consumer from 'ts-amqp/dist/classes/Consumer';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
-import ChannelN from 'ts-amqp/dist/classes/ChannelN';
 import Registry from './registry';
 import CloseReason from 'ts-amqp/dist/utils/CloseReason';
+import { IConsumer } from 'ts-amqp/dist/interfaces/Consumer';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -95,17 +94,15 @@ export default class PeanarApp {
   public broker: Broker;
   public jobClass: typeof PeanarJob;
 
-  protected consumers: Map<string, Consumer[]> = new Map;
+  protected consumers: Map<string, IConsumer<any>[]> = new Map;
   protected workers: Map<string, Worker[]> = new Map;
   protected jobs: Map<string, (...args: unknown[]) => Promise<unknown>> = new Map;
-
-  protected _connectionPromise?: Promise<ChannelN>;
 
   public state: EAppState = EAppState.RUNNING;
 
   constructor(options: IPeanarOptions = {}) {
     this.broker = new Broker({
-      connection: options.connection,
+      // connection: options.connection,
       poolSize: options.poolSize || 5,
       prefetch: options.prefetch || 1
     });
@@ -139,7 +136,7 @@ export default class PeanarApp {
     this.workers.set(queue, workers);
   }
 
-  protected _registerConsumer(queue: string, consumer: Consumer) {
+  protected _registerConsumer(queue: string, consumer: IConsumer<any>) {
     const consumers = this.consumers.get(queue) || [];
     consumers.push(consumer);
     this.consumers.set(queue, consumers);
@@ -263,7 +260,7 @@ export default class PeanarApp {
     for (const c of consumers) c.resume();
   }
 
-  protected async _startWorker(queue: string, consumer: Consumer) {
+  protected async _startWorker(queue: string, consumer: IConsumer<any>) {
     const worker = new Worker(this, consumer.channel, queue);
 
     consumer.channel.once('channelClose', async (reason: CloseReason) => {

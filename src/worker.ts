@@ -11,6 +11,7 @@ import ChannelN from 'ts-amqp/dist/classes/ChannelN';
 import PeanarJob from './job';
 import { PeanarInternalError } from './exceptions';
 import CloseReason from 'ts-amqp/dist/utils/CloseReason';
+import { Channel } from 'amqplib';
 
 export type IWorkerResult = {
   status: 'SUCCESS';
@@ -43,7 +44,7 @@ const SHUTDOWN_TIMEOUT = 10000;
 
 export default class PeanarWorker extends Transform {
   private app: PeanarApp;
-  private _channel: ChannelN;
+  private _channel: Channel;
   private queue: string;
   private n: number;
   private state: EWorkerState = EWorkerState.IDLE;
@@ -53,7 +54,7 @@ export default class PeanarWorker extends Transform {
   private _destroy_timeout?: NodeJS.Timeout;
   private _shutdown_timeout: number = SHUTDOWN_TIMEOUT;
 
-  constructor(app: PeanarApp, channel: ChannelN, queue: string) {
+  constructor(app: PeanarApp, channel: Channel, queue: string) {
     super({
       objectMode: true
     });
@@ -232,12 +233,14 @@ export default class PeanarWorker extends Transform {
     try {
       job = this._getJob(delivery);
     } catch (ex) {
-      this.channel.basicReject(delivery.envelope.deliveryTag, false);
+      // @ts-ignore
+      this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
       return done(ex);
     }
 
     if (!job) {
-      this.channel.basicReject(delivery.envelope.deliveryTag, false);
+      // @ts-ignore
+      this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
 
       return done();
     }

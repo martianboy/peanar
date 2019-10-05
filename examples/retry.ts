@@ -2,7 +2,7 @@ import PeanarApp = require('../src');
 
 function dummy2() {
   return new Promise((resolve, reject) => {
-    if (Math.random() > 0.333333) {
+    if (Math.random() > 0.033333) {
       reject(new Error('Oh nooooo!'));
     } else {
       setTimeout(resolve, 1500);

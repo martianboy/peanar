@@ -1,17 +1,17 @@
 import debugFn from 'debug';
 const debug = debugFn('peanar:broker');
 
-import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
-import { Connection } from 'ts-amqp';
-import ChannelPool from 'ts-amqp/dist/classes/ChannelPool';
-import { PeanarAdapterError } from './exceptions';
-import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
-import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
-import { ICloseReason } from 'ts-amqp/dist/interfaces/Protocol';
+import amqplib, { Connection, ConsumeMessage, Replies, Channel } from 'amqplib';
+
+import ChannelPool from './pool';
+import { PeanarAdapterError } from '../exceptions';
 import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
+import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
+import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
+import Consumer from './consumer';
 
 interface IBrokerOptions {
-  connection?: IConnectionParams;
+  // connection?: IConnectionParams;
   poolSize: number;
   prefetch?: number;
 }
@@ -19,7 +19,7 @@ interface IBrokerOptions {
 /**
  * Peanar's broker adapter
  */
-export default class PeanarBroker {
+export default class NodeAmqpBroker {
   private config: IBrokerOptions;
   private conn?: Connection;
   private _connectPromise?: Promise<void>;
@@ -33,13 +33,12 @@ export default class PeanarBroker {
   private _connect = async () => {
     debug('_connect()');
 
-    const conn = (this.conn = new Connection(this.config.connection));
+    const conn = (this.conn = await amqplib.connect('amqp://guest:guest@localhost/'));
     this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
 
-    await conn.start();
     await this.pool.open();
 
-    conn.once('close', (err?: ICloseReason) => {
+    conn.once('close', (err?: any) => {
       this._connectPromise = undefined;
       if (err && err.reply_code >= 400) {
         this.connect()
@@ -72,7 +71,12 @@ export default class PeanarBroker {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return await Promise.all(this.pool.mapOver(queues, async (ch, queue) => {
-      return ch.declareQueue(queue);
+      return ch.assertQueue(queue.name, {
+        durable: queue.durable,
+        autoDelete: queue.auto_delete,
+        exclusive: queue.exclusive,
+        ...queue.arguments
+      });
     }));
   }
 
@@ -81,7 +85,10 @@ export default class PeanarBroker {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return await Promise.all(this.pool.mapOver(exchanges, async (ch, exchange) => {
-      return ch.declareExchange(exchange);
+      return ch.assertExchange(exchange.name, exchange.type, {
+        durable: exchange.durable,
+        ...exchange.arguments
+      });
     }));
   }
 
@@ -90,14 +97,27 @@ export default class PeanarBroker {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return await Promise.all(this.pool.mapOver(bindings, async (ch, binding) => {
-      return ch.bindQueue(binding);
+      return ch.bindQueue(binding.queue, binding.exchange, binding.routing_key);
     }));
   }
 
-  public consume(queue: string) {
+  private async _startConsumer(ch: Channel, queue: string): Promise<Consumer> {
+    let consumer: Consumer | null;
+
+    return await ch.consume(queue, (msg: ConsumeMessage | null) => {
+      if (msg && consumer) {
+        consumer.handleDelivery(msg);
+      }
+    }).then((res: Replies.Consume) => {
+      consumer = new Consumer(ch, res.consumerTag);
+      return consumer;
+    }, ex => Promise.reject(ex));
+  }
+
+  public consume(queue: string): Promise<Consumer> {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    return this.pool.acquireAndRun(ch => ch.basicConsume(queue));
+    return this.pool.acquireAndRun(async ch => this._startConsumer(ch, queue));
   }
 
   public consumeOver(queues: string[]) {
@@ -106,7 +126,7 @@ export default class PeanarBroker {
     return this.pool.mapOver(queues, async (ch, queue) => {
       return {
         queue,
-        consumer: await ch.basicConsume(queue)
+        consumer: await this._startConsumer(ch, queue)
       };
     });
   }
@@ -116,14 +136,15 @@ export default class PeanarBroker {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     const { channel, release } = await this.pool.acquire();
-    debug(`publish to channel ${channel.channelNumber}`);
-    if (channel.basicPublishJson(
+    debug(`publish to channel`);
+    if (channel.publish(
       message.exchange || '',
       message.routing_key,
-      message.properties,
-      message.body,
-      message.mandatory,
-      message.immediate
+      Buffer.from(JSON.stringify(message.body)),
+      {
+        contentType: 'application/json',
+        mandatory: message.mandatory
+      }
     )) {
       release();
       return true;
