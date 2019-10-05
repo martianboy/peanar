@@ -9,9 +9,10 @@ import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
 import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
 import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
 import Consumer from './consumer';
+import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 
 interface IBrokerOptions {
-  // connection?: IConnectionParams;
+  connection?: IConnectionParams;
   poolSize: number;
   prefetch?: number;
 }
@@ -33,7 +34,16 @@ export default class NodeAmqpBroker {
   private _connect = async () => {
     debug('_connect()');
 
-    const conn = (this.conn = await amqplib.connect('amqp://guest:guest@localhost/'));
+    const c = this.config || {};
+
+    const conn = (this.conn = await amqplib.connect({
+      hostname: c.connection ? c.connection.host : 'localhost',
+      port: c.connection ? c.connection.port : 5672,
+      username: c.connection ? c.connection.username : 'guest',
+      password: c.connection ? c.connection.password : 'guest',
+      vhost: c.connection ? c.connection.vhost : '/'
+    }));
+
     this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
 
     await this.pool.open();

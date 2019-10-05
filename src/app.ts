@@ -102,7 +102,7 @@ export default class PeanarApp {
 
   constructor(options: IPeanarOptions = {}) {
     this.broker = new Broker({
-      // connection: options.connection,
+      connection: options.connection,
       poolSize: options.poolSize || 5,
       prefetch: options.prefetch || 1
     });
