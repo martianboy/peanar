@@ -33,7 +33,7 @@
     "@types/uuid": "^3.4.5",
     "eslint": "^6.5.1",
     "ts-node": "^8.4.1",
-    "typescript": "^3.6.3"
+    "typescript": "^3.6.4"
   },
   "dependencies": {
     "@types/amqplib": "^0.5.13",
