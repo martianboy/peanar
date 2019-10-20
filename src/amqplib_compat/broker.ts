@@ -48,10 +48,21 @@ export default class NodeAmqpBroker {
 
     await this.pool.open();
 
+    conn.on('error', ex => {
+      debug(`AMQP connection error ${ex.code}!`);
+      debug(`Original error message: ${ex.message}`);
+    });
+
     conn.once('close', (err?: any) => {
+      if (err) {
+        debug(err.message);
+      } else {
+        debug('AMQP connection closed.');
+      }
+
       this._connectPromise = undefined;
-      if (err && err.reply_code >= 400) {
-        this.connect()
+      if (err && err.code >= 400) {
+        this.connect();
       }
     });
   }
