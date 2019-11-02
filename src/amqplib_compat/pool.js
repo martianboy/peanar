@@ -4,6 +4,8 @@ const debug = debugFn('amqp:pool');
 
 class ChannelPool extends EventEmitter {
   _queue = [];
+
+  /** @type {import('amqplib').Channel[]} */
   _pool = [];
   _acquisitions = new Map();
   _releaseResolvers = new Map();
@@ -13,6 +15,7 @@ class ChannelPool extends EventEmitter {
   constructor(connection, size, prefetch = 1) {
     super();
 
+    /** @type {import('amqplib').Connection} */
     this._conn = connection;
     this._size = size;
     this.prefetch = prefetch;
@@ -81,8 +84,8 @@ class ChannelPool extends EventEmitter {
 
     debug('ChannelPool: closing all channels');
     for (const ch of this._pool) {
-      ch.off('close');
-      ch.off('error');
+      ch.removeAllListeners('close');
+      ch.removeAllListeners('error');
       await ch.close();
     }
 
