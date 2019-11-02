@@ -81,6 +81,8 @@ class ChannelPool extends EventEmitter {
 
     debug('ChannelPool: closing all channels');
     for (const ch of this._pool) {
+      ch.off('close');
+      ch.off('error');
       await ch.close();
     }
 
@@ -142,9 +144,14 @@ class ChannelPool extends EventEmitter {
     }
   }
 
+  onChannelError(ch, err) {
+    this.emit('error', ch, err);
+  }
+
   async openChannel() {
     const ch = await this._conn.createChannel();
     ch.once('channelClose', this.onChannelClose.bind(this, ch));
+    ch.on('error', this.onChannelError.bind(this, ch));
 
     if (this.prefetch) await ch.prefetch(this.prefetch, false);
 
