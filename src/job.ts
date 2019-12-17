@@ -107,7 +107,7 @@ export default class PeanarJob extends EventEmitter {
       debug(`PeanarJob#${this.id}: No retries. Writing to error exchange!`);
 
       this.channel.publish(
-        this.error_name,
+        this.def.error_exchange,
         this.def.routingKey,
         Buffer.from(JSON.stringify({
           id: this.id,
@@ -139,10 +139,6 @@ export default class PeanarJob extends EventEmitter {
 
   protected get requeue_name() {
     return `${this.def.queue}.retry-requeue`;
-  }
-
-  protected get error_name() {
-    return `${this.def.queue}.error`;
   }
 
   protected async _declareRetryQueues() {
