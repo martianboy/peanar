@@ -209,6 +209,7 @@ export default class PeanarJob extends EventEmitter {
       const callResolve = (result: unknown) => {
         if (!already_finished) {
           already_finished = true;
+          debug('PeanarJob#${this.id}: (callResolve) not finished. all good. resolving...');
           resolve(result);
         }
       }
@@ -216,7 +217,10 @@ export default class PeanarJob extends EventEmitter {
       const callReject = (ex: unknown) => {
         if (!already_finished) {
           already_finished = true;
+          debug('PeanarJob#${this.id}: (callReject) not finished. rejecting.');
           reject(ex);
+        } else {
+          debug('PeanarJob#${this.id}: (callReject) already finished somehow! when did it finish?!');
         }
       }
 
