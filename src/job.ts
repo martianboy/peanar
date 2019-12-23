@@ -100,7 +100,8 @@ export default class PeanarJob extends EventEmitter {
     } else {
       if (!this.def.error_exchange || this.def.error_exchange.length < 1) {
         debug(`PeanarJob#${this.id}: No retries left. Discarding...`);
-        return;
+        // @ts-ignore
+        return this.channel.reject({ fields: { deliveryTag: Number(this.deliveryTag) } }, false);
       }
 
       // No attempts left. Publish to error exchange for manual investigation.
