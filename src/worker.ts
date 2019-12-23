@@ -189,9 +189,10 @@ export default class PeanarWorker extends Transform {
         result
       });
 
-      this.log('SUCCESS!');
+      this.log(`Job ${job.name}:${job.id} SUCCESS!`);
 
       job.ack();
+      this.log(`Job ${job.name}:${job.id} was acked.`);
     } catch (ex) {
       this.push({
         status: 'FAILURE',
@@ -199,9 +200,10 @@ export default class PeanarWorker extends Transform {
         error: ex
       });
 
-      this.log('FAILURE!');
+      this.log(`Job ${job.name}:${job.id} FAILURE!`);
 
       await job.reject();
+      this.log(`Job ${job.name}:${job.id} was rejected.`);
     } finally {
       this.activeJob = undefined;
     }
@@ -245,6 +247,6 @@ export default class PeanarWorker extends Transform {
       return done();
     }
 
-    this.run(job).catch(done).then(_ => done());
+    this.run(job).then(_ => done(), done);
   }
 }
