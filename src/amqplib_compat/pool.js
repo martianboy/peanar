@@ -153,8 +153,8 @@ class ChannelPool extends EventEmitter {
 
   async openChannel() {
     const ch = await this._conn.createChannel();
-    ch.once('channelClose', this.onChannelClose.bind(this, ch));
-    ch.on('error', this.onChannelError.bind(this, ch));
+    ch.once('close', this.onChannelClose.bind(this, ch));
+    ch.once('error', this.onChannelError.bind(this, ch));
 
     if (this.prefetch) await ch.prefetch(this.prefetch, false);
 
