@@ -1,4 +1,4 @@
-import uuid from 'uuid';
+import * as uuid from 'uuid';
 import debugFn from 'debug';
 const debug = debugFn('peanar:app');
 
