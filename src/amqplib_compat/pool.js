@@ -1,6 +1,6 @@
 const { EventEmitter } = require('events');
 const debugFn = require('debug');
-const debug = debugFn('amqp:pool');
+const debug = debugFn('peanar:pool');
 
 class ChannelPool extends EventEmitter {
   _queue = [];
@@ -22,6 +22,7 @@ class ChannelPool extends EventEmitter {
 
     // this._conn.once('closing', this.softCleanUp);
     this._conn.once('close', this.hardCleanUp);
+    this._conn.once('error', this.softCleanUp);
   }
 
   softCleanUp = () => {
@@ -74,8 +75,6 @@ class ChannelPool extends EventEmitter {
   async close() {
     this.emit('closing');
 
-    this._isOpen = false;
-
     // this._conn.off('closing', this.softCleanUp);
     this._conn.off('close', this.hardCleanUp);
 
@@ -83,12 +82,15 @@ class ChannelPool extends EventEmitter {
     await Promise.all(this._acquisitions.values());
 
     debug('ChannelPool: closing all channels');
-    for (const ch of this._pool) {
-      ch.removeAllListeners('close');
-      ch.removeAllListeners('error');
-      await ch.close();
+    if (this._isOpen) {
+      for (const ch of this._pool) {
+        ch.removeAllListeners('close');
+        ch.removeAllListeners('error');
+        await ch.close();
+      }
     }
 
+    this._isOpen = false;
     this.emit('close');
     debug('ChannelPool: pool closed successfully');
   }
@@ -167,8 +169,10 @@ class ChannelPool extends EventEmitter {
     // debug(`ChannelPool: channel ${ch.channelNumber} released`);
     this._pool.push(ch);
 
-    const releaseResolver = this._releaseResolvers.get(ch);
-    releaseResolver();
+    if (this._releaseResolvers.has(ch)) {
+      const releaseResolver = this._releaseResolvers.get(ch);
+      releaseResolver();
+    }
 
     debug('ChannelPool: dispatch released channel to new requests');
     this.dispatchChannels();
