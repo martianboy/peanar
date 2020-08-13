@@ -150,7 +150,7 @@ class ChannelPool extends EventEmitter {
   }
 
   onChannelError(ch, err) {
-    this.emit('error', ch, err);
+    // this.emit('error', err, ch);
   }
 
   async openChannel() {
