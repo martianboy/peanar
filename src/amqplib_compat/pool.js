@@ -83,6 +83,7 @@ class ChannelPool extends EventEmitter {
 
     debug('ChannelPool: closing all channels');
     if (this._isOpen) {
+      this._isOpen = false;
       for (const ch of this._pool) {
         ch.removeAllListeners('close');
         ch.removeAllListeners('error');
@@ -90,7 +91,6 @@ class ChannelPool extends EventEmitter {
       }
     }
 
-    this._isOpen = false;
     this.emit('close');
     debug('ChannelPool: pool closed successfully');
   }
@@ -142,7 +142,14 @@ class ChannelPool extends EventEmitter {
     const idx = this._pool.indexOf(ch);
     if (this._isOpen) {
       // debug(`ChannelPool: replacing closed channel ${ch.channelNumber} with a new one`);
-      this._pool.splice(idx, 1, await this.openChannel());
+      let newCh = undefined
+      try {
+        newCh = await this.openChannel();
+      } catch (ex) {
+        this.softCleanUp();
+      }
+
+      this._pool.splice(idx, 1, newCh);
     } else {
       debug('ChannelPool: pool is closing. dropping closed channel from the pool');
       this._pool.splice(idx, 1);
@@ -150,6 +157,7 @@ class ChannelPool extends EventEmitter {
   }
 
   onChannelError(ch, err) {
+    console.error(err);
     // this.emit('error', err, ch);
   }
 

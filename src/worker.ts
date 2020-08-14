@@ -7,7 +7,6 @@ import 'colors';
 import { Transform, TransformCallback } from 'stream'
 import PeanarApp, { IPeanarRequest, IPeanarJob } from './app';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
-import ChannelN from 'ts-amqp/dist/classes/ChannelN';
 import PeanarJob from './job';
 import { PeanarInternalError } from './exceptions';
 import CloseReason from 'ts-amqp/dist/utils/CloseReason';

@@ -17,6 +17,12 @@ interface IBrokerOptions {
   prefetch?: number;
 }
 
+function timeout(ms: number) {
+  return new Promise(res => {
+    setTimeout(res, ms)
+  })
+}
+
 /**
  * Peanar's broker adapter
  */
@@ -31,40 +37,29 @@ export default class NodeAmqpBroker {
     this.config = config
   }
 
-  private _connect = async () => {
-    debug('_connect()');
+  private async _connectAmqp(retry = 1): Promise<Connection> {
+    debug(`_connectAmqp(${retry})`)
+    try {
+      const c = this.config || {};
 
-    const c = this.config || {};
+      const conn = (this.conn = await amqplib.connect({
+        hostname: c.connection ? c.connection.host : 'localhost',
+        port: c.connection ? c.connection.port : 5672,
+        username: c.connection ? c.connection.username : 'guest',
+        password: c.connection ? c.connection.password : 'guest',
+        vhost: c.connection ? c.connection.vhost : '/'
+      }));
 
-    const conn = (this.conn = await amqplib.connect({
-      hostname: c.connection ? c.connection.host : 'localhost',
-      port: c.connection ? c.connection.port : 5672,
-      username: c.connection ? c.connection.username : 'guest',
-      password: c.connection ? c.connection.password : 'guest',
-      vhost: c.connection ? c.connection.vhost : '/'
-    }));
-
-    this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
-
-    await this.pool.open();
-
-    conn.on('error', ex => {
-      debug(`AMQP connection error ${ex.code}!`);
-      debug(`Original error message: ${ex.message}`);
-    });
-
-    conn.once('close', (err?: any) => {
-      if (err) {
-        debug(err.message);
+      return conn
+    } catch (ex) {
+      if (ex.code === 'ECONNREFUSED') {
+        await timeout(700 * retry);
+        return this._connectAmqp(retry + 1);
       } else {
-        debug('AMQP connection closed.');
+        console.error(ex);
+        throw ex;
       }
-
-      this._connectPromise = undefined;
-      if (err && err.code >= 400) {
-        this.connect();
-      }
-    });
+    }
   }
 
   /**
@@ -73,7 +68,35 @@ export default class NodeAmqpBroker {
   public connect = async () => {
     if (this._connectPromise) return this._connectPromise;
 
-    return (this._connectPromise = this._connect());
+    const doConnect = async () => {
+      debug('doConnect()');
+
+      const conn = await this._connectAmqp()
+
+      this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
+
+      await this.pool.open();
+
+      conn.on('error', ex => {
+        debug(`AMQP connection error ${ex.code}!`);
+        debug(`Original error message: ${ex.message}`);
+      });
+
+      conn.once('close', (err?: any) => {
+        if (err) {
+          debug(err.message);
+        } else {
+          debug('AMQP connection closed.');
+        }
+
+        this._connectPromise = undefined;
+        if (err && err.code >= 300) {
+          this.connect();
+        }
+      });
+    }
+
+    return (this._connectPromise = doConnect());
   }
 
   public async shutdown() {
@@ -152,26 +175,56 @@ export default class NodeAmqpBroker {
     });
   }
 
+  /**
+   * This method will always try to make a connection
+   * unless `this.pool` is empty. Call with care.
+   */
   public async publish(message: IMessage<unknown>) {
     await this.connect();
-    if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    const { channel, release } = await this.pool.acquire();
-    debug(`publish to channel`);
-    if (channel.publish(
-      message.exchange || '',
-      message.routing_key,
-      Buffer.from(JSON.stringify(message.body)),
-      {
-        contentType: 'application/json',
-        mandatory: message.mandatory
+    const _doAcquire = async (): Promise<{
+      release: () => void;
+      channel: Channel;
+    }> => {
+      if (!this.pool) throw new PeanarAdapterError('Not connected!');
+
+      try {
+        return await this.pool.acquire();
+      } catch (ex) {
+        await this.connect();
+        return _doAcquire();
       }
-    )) {
-      release();
-      return true;
-    } else {
-      channel.once('drain', release);
-      return false;
     }
+
+    const _doPublish = async (): Promise<boolean> => {
+      const { channel, release } = await _doAcquire()
+      debug(`publish to channel`);
+
+      try {
+        if (channel.publish(
+          message.exchange || '',
+          message.routing_key,
+          Buffer.from(JSON.stringify(message.body)),
+          {
+            contentType: 'application/json',
+            mandatory: message.mandatory
+          }
+        )) {
+          release();
+          return true;
+        } else {
+          channel.once('drain', release);
+          return false;
+        }
+      } catch (ex) {
+        if (ex.message === 'Channel closed') {
+          return _doPublish();
+        }
+
+        throw ex;
+      }
+    };
+
+    return _doPublish();
   }
 }

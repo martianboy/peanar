@@ -112,12 +112,15 @@ export default class PeanarApp {
   }
 
   protected async _shutdown(timeout?: number) {
+    // Immediately stop receiving new messages
     await Promise.all([...this.consumers.values()].flat().map(c => c.cancel()))
     debug('shutdown(): consumers cancelled')
 
+    // Wait a few seconds for running jobs to finish their work
     await Promise.all([...this.workers.values()].flat().map(w => w.shutdown(timeout)))
     debug('shutdown(): workers shut down')
 
+    // Close the channel pool and then the amqp connection
     await this.broker.shutdown();
     debug('shutdown(): broker shut down')
   }
@@ -154,6 +157,10 @@ export default class PeanarApp {
 
   public async enqueueJobRequest(def: IPeanarJobDefinition, req: IPeanarRequest) {
     debug(`Peanar: enqueueJob(${def.queue}:${def.name}})`);
+
+    if (this.state !== EAppState.RUNNING) {
+      throw new PeanarInternalError('PeanarApp::enqueueJobRequest() called while app is not in running state.');
+    }
 
     const properties: IBasicProperties = {
       correlationId: req.correlationId,
@@ -263,20 +270,22 @@ export default class PeanarApp {
   protected async _startWorker(queue: string, consumer: IConsumer<any>) {
     const worker = new Worker(this, consumer.channel, queue);
 
-    consumer.channel.once('channelClose', async (reason: CloseReason) => {
-      debug(`Consumer channel on queue '${queue}' closed abruptly.`);
+    // TODO: Move consumer recovery logic to pool class
 
-      consumer.unpipe(worker);
-      const queue_consumers = this.consumers.get(queue) || [];
-      queue_consumers.splice(queue_consumers.indexOf(consumer), 1);
+    // consumer.channel.once('close', async (reason: CloseReason) => {
+    //   debug(`Consumer channel on queue '${queue}' closed abruptly.`);
 
-      if (reason && reason.reply_code >= 400) {
-        debug(`Openning another consumer on queue '${queue}'.`);
-        const new_consumer = await this.broker.consume(queue);
-        this._registerConsumer(queue, new_consumer);
-        consumer.pipe(worker);
-      }
-    });
+    //   consumer.unpipe(worker);
+    //   const queue_consumers = this.consumers.get(queue) || [];
+    //   queue_consumers.splice(queue_consumers.indexOf(consumer), 1);
+
+    //   if (reason && reason.reply_code >= 300) {
+    //     debug(`Openning another consumer on queue '${queue}'.`);
+    //     const new_consumer = await this.broker.consume(queue);
+    //     this._registerConsumer(queue, new_consumer);
+    //     consumer.pipe(worker);
+    //   }
+    // });
 
     this._registerConsumer(queue, consumer);
     this._registerWorker(queue, worker);
