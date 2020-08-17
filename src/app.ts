@@ -10,7 +10,6 @@ import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Writable, TransformCallback } from 'stream';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import Registry from './registry';
-import CloseReason from 'ts-amqp/dist/utils/CloseReason';
 import { IConsumer } from 'ts-amqp/dist/interfaces/Consumer';
 
 export interface IPeanarJobDefinitionInput {

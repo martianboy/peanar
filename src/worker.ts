@@ -63,17 +63,17 @@ export default class PeanarWorker extends Transform {
     this.n = counter++;
 
     this._channel = channel;
-    this._channel.once('channelClose', this.onChannelClosed);
+    this._channel.once('close', this.onChannelClosed);
   }
 
   get channel() { return this._channel; }
   set channel(ch) {
     if (this._channel) {
-      this._channel.off('channelClose', this.onChannelClosed);
+      this._channel.off('close', this.onChannelClosed);
     }
 
     this._channel = ch;
-    this._channel.once('channelClose', this.onChannelClosed);
+    this._channel.once('close', this.onChannelClosed);
   }
 
   onChannelClosed = (err: CloseReason) => {
