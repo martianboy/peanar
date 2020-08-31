@@ -2,13 +2,17 @@ import PeanarApp = require('../src');
 
 function dummy() {
   return new Promise((resolve, reject) => {
-    setTimeout(resolve, 1500);
+    setTimeout(resolve, 4000);
   });
 }
 
 const app = new PeanarApp({
   prefetch: 1
 });
+
+let interval: NodeJS.Timer;
+
+let enqueue_counter = 0
 
 async function main() {
   const enqueueDummy = app.job({
@@ -18,18 +22,23 @@ async function main() {
 
   await app.declareAmqResources();
 
-  await Promise.all(
-    Array(4)
-      .fill(0)
-      .map(() => enqueueDummy())
-  );
+  // await Promise.all(
+  //   Array(4)
+  //     .fill(0)
+  //     .map(() => enqueueDummy())
+  // );
 
   await app.worker({
     queues: ['dummy'],
-    concurrency: 4,
+    concurrency: 3,
     prefetch: 1
   });
 
+  // interval = setInterval(() => {
+  //   enqueue_counter += 1;
+  //   console.log(`enqueue #${enqueue_counter}`);
+  //   enqueueDummy();
+  // }, 200);
   // await Promise.all(
   //   Array(4)
   //     .fill(0)
@@ -40,6 +49,7 @@ async function main() {
 }
 
 async function shutdown() {
+  // clearInterval(interval);
   await app.shutdown(20000);
 }
 

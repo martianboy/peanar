@@ -31,6 +31,8 @@ export default class NodeAmqpBroker {
   private conn?: Connection;
   private _connectPromise?: Promise<void>;
 
+  private _channelConsumers = new Map<Channel, Set<Consumer>>();
+
   public pool?: ChannelPool;
 
   constructor(config: IBrokerOptions) {
@@ -76,6 +78,19 @@ export default class NodeAmqpBroker {
       this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
 
       await this.pool.open();
+
+      if (this._channelConsumers.size > 0) {
+        await this.resurrectAllConsumers();
+      }
+
+      this.pool.on('channelLost', (ch) => {
+        this.pauseConsumersOnChannel(ch);
+      });
+      this.pool.on('channelReplaced', (ch, newCh) => {
+        this.rewireConsumersOnChannel(ch, newCh).catch(ex => {
+          console.error(ex);
+        });
+      });
 
       conn.on('error', ex => {
         debug(`AMQP connection error ${ex.code}!`);
@@ -145,6 +160,39 @@ export default class NodeAmqpBroker {
     }));
   }
 
+  private async resurrectAllConsumers() {
+    await Promise.all(this.pool!.mapOver([...this._channelConsumers.keys()], (newCh, oldCh) => this.rewireConsumersOnChannel(oldCh, newCh)))
+  }
+
+  private pauseConsumersOnChannel(ch: Channel) {
+    const set = this._channelConsumers.get(ch);
+    if (!set || set.size < 1) return;
+
+    for (const consumer of set) {
+      consumer.pause();
+    }
+  }
+
+  private async rewireConsumersOnChannel(ch: Channel, newCh: Channel) {
+    const set = this._channelConsumers.get(ch);
+    if (!set || set.size < 1) return;
+
+    for (const consumer of set) {
+      const res = await newCh.consume(consumer.queue, (msg: ConsumeMessage | null) => {
+        if (msg && consumer) {
+          consumer.handleDelivery(msg);
+        }
+      });
+
+      consumer.tag = res.consumerTag;
+      consumer.channel = newCh;
+      consumer.resume();
+    }
+
+    this._channelConsumers.delete(ch);
+    this._channelConsumers.set(ch, set);
+  }
+
   private async _startConsumer(ch: Channel, queue: string): Promise<Consumer> {
     let consumer: Consumer | null;
 
@@ -153,7 +201,15 @@ export default class NodeAmqpBroker {
         consumer.handleDelivery(msg);
       }
     }).then((res: Replies.Consume) => {
-      consumer = new Consumer(ch, res.consumerTag);
+      consumer = new Consumer(ch, res.consumerTag, queue);
+
+      if (!this._channelConsumers.has(ch)) {
+        this._channelConsumers.set(ch, new Set([consumer]));
+      } else {
+        const set = this._channelConsumers.get(ch);
+        set!.add(consumer);
+      }
+
       return consumer;
     }, ex => Promise.reject(ex));
   }
@@ -207,7 +263,8 @@ export default class NodeAmqpBroker {
           Buffer.from(JSON.stringify(message.body)),
           {
             contentType: 'application/json',
-            mandatory: message.mandatory
+            mandatory: message.mandatory,
+            persistent: true,
           }
         )) {
           release();

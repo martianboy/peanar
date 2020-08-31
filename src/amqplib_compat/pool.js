@@ -145,6 +145,7 @@ class ChannelPool extends EventEmitter {
       let newCh = undefined
       try {
         newCh = await this.openChannel();
+        this.emit('channelReplaced', ch, newCh);
       } catch (ex) {
         this.softCleanUp();
       }
@@ -158,6 +159,7 @@ class ChannelPool extends EventEmitter {
 
   onChannelError(ch, err) {
     console.error(err);
+    this.emit('channelLost', ch, err)
     // this.emit('error', err, ch);
   }
 

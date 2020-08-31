@@ -30,5 +30,11 @@ export default class ChannelPool extends EventEmitter {
     private openChannel;
     private releaser;
     private dispatchChannels;
+
+    on(event: 'channelLost', listener: (ch: Channel, err: unknown) => void): this;
+    once(event: 'channelLost', listener: (ch: Channel, err: unknown) => void): this;
+
+    on(event: 'channelReplaced', listener: (ch: Channel, newCh: Channel) => void): this;
+    once(event: 'channelReplaced', listener: (ch: Channel, newCh: Channel) => void): this;
 }
 export {};

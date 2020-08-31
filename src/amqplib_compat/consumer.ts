@@ -5,19 +5,31 @@ import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 
 export default class Consumer extends Readable implements IConsumer<Channel> {
   public tag: string;
-  public channel: Channel;
+  public queue: string;
+  private _channel: Channel;
 
-  public constructor(channel: Channel, consumer_tag: string) {
+  public constructor(channel: Channel, consumer_tag: string, queue: string) {
     super({
       objectMode: true
     });
 
     this.tag = consumer_tag;
-    this.channel = channel;
+    this._channel = channel;
+    this.queue = queue;
+  }
+
+  public get channel() {
+    return this._channel;
+  }
+
+  public set channel(ch) {
+    this._channel = ch;
+    this.emit('channelChanged', ch);
   }
 
   public async cancel() {
     await this.channel.cancel(this.tag);
+    this.removeAllListeners('channelChanged');
     this.handleCancel(false);
   }
 
@@ -32,7 +44,14 @@ export default class Consumer extends Readable implements IConsumer<Channel> {
       },
       properties: delivery.properties
     };
-    this.push(msg);
+
+    if (this.isPaused()) {
+      this.once('resume', () => {
+        this.push(msg);
+      });
+    } else {
+      this.push(msg);
+    }
   }
 
   public handleCancel(server: boolean) {

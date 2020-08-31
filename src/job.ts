@@ -64,9 +64,9 @@ export default class PeanarJob extends EventEmitter {
     this.app = app;
   }
 
-  cancel(reason?: string | Error) {
+  cancel(reason?: Error) {
     this.cancelled = true;
-    this.emit('cancel', reason);
+    this.emit('cancel', new PeanarJobCancelledError(reason));
   }
 
   ack() {
@@ -226,7 +226,7 @@ export default class PeanarJob extends EventEmitter {
       }
 
       this._perform().then(callResolve, callReject);
-      this.on('cancel', callReject);
+      this.once('cancel', callReject);
     });
   }
 }

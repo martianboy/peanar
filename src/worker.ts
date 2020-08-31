@@ -8,7 +8,7 @@ import { Transform, TransformCallback } from 'stream'
 import PeanarApp, { IPeanarRequest, IPeanarJob } from './app';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 import PeanarJob from './job';
-import { PeanarInternalError } from './exceptions';
+import { PeanarInternalError, PeanarJobCancelledError } from './exceptions';
 import CloseReason from 'ts-amqp/dist/utils/CloseReason';
 import { Channel } from 'amqplib';
 
@@ -41,6 +41,8 @@ enum EWorkerState {
 let counter = 0;
 const SHUTDOWN_TIMEOUT = 10000;
 
+const _to_ack = new Set<string>();
+
 export default class PeanarWorker extends Transform {
   private app: PeanarApp;
   private _channel: Channel;
@@ -52,6 +54,7 @@ export default class PeanarWorker extends Transform {
   private destroy_cb?: (err: Error | null) => void;
   private _destroy_timeout?: NodeJS.Timeout;
   private _shutdown_timeout: number = SHUTDOWN_TIMEOUT;
+  private _channel_lost: boolean = false;
 
   constructor(app: PeanarApp, channel: Channel, queue: string) {
     super({
@@ -72,12 +75,17 @@ export default class PeanarWorker extends Transform {
       this._channel.off('close', this.onChannelClosed);
     }
 
+    this._channel_lost = false;
+
     this._channel = ch;
     this._channel.once('close', this.onChannelClosed);
+    this.emit('channelChanged', ch);
+    this.log('channel changed!');
   }
 
   onChannelClosed = (err: CloseReason) => {
-    if (this.activeJob) this.activeJob.cancel(err || 'Channel closed');
+    this._channel_lost = true;
+    // if (this.activeJob) this.activeJob.cancel(err || 'Channel closed');
   }
 
   async shutdown(timeout?: number) {
@@ -181,6 +189,8 @@ export default class PeanarWorker extends Transform {
 
     try {
       const result = await job.perform();
+      _to_ack.add(job.id);
+      this.log(`_to_ack.add(${job.id});`);
 
       this.push({
         status: 'SUCCESS',
@@ -191,8 +201,21 @@ export default class PeanarWorker extends Transform {
       this.log(`Job ${job.name}:${job.id} SUCCESS!`);
 
       job.ack();
+      _to_ack.delete(job.id);
+      this.log(`_to_ack.delete(${job.id});`);
+
       this.log(`Job ${job.name}:${job.id} was acked.`);
     } catch (ex) {
+      if (ex instanceof PeanarJobCancelledError) {
+        this.log(`job ${job.id} was cancelled.`);
+        return;
+      }
+
+      if (ex.name === 'IllegalOperationError') {
+        this.log(`Channel closed on ack for job ${job.id}. It will be acked next time it's delivered.`);
+        return;
+      }
+
       this.push({
         status: 'FAILURE',
         job,
@@ -209,7 +232,7 @@ export default class PeanarWorker extends Transform {
   }
 
   _transform(delivery: IDelivery, _encoding: string, cb: TransformCallback) {
-    if (this.app.state !== "RUNNING") {
+    if (this.app.state === "CLOSING" || this.app.state === "CLOSED") {
       this.log(`Received job ${Number(delivery.envelope.deliveryTag)} while shutting down. Holding on to it...`);
       return cb();
     }
@@ -228,24 +251,40 @@ export default class PeanarWorker extends Transform {
       }
     }
 
-    this.state = EWorkerState.WORKING;
+    const startProcessing = () => {
+      this.state = EWorkerState.WORKING;
 
-    let job = undefined;
-    try {
-      job = this._getJob(delivery);
-    } catch (ex) {
-      // @ts-ignore
-      this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
-      return done(ex);
+      let job = undefined;
+      try {
+        job = this._getJob(delivery);
+      } catch (ex) {
+        // @ts-ignore
+        this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
+        return done(ex);
+      }
+
+      if (!job) {
+        // @ts-ignore
+        this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
+
+        return done();
+      }
+
+      if (_to_ack.has(job.id)) {
+        this.log(`Job ${job.name}:${job.id} will be acked from pending list.`);
+        job.ack();
+        _to_ack.delete(job.id);
+        return done();
+      }
+
+      this.run(job).then(_ => done(), done);
     }
 
-    if (!job) {
-      // @ts-ignore
-      this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
-
-      return done();
+    // @ts-ignore
+    if (this._channel_lost) {
+      this.once("channelChanged", startProcessing);
+    } else {
+      startProcessing();
     }
-
-    this.run(job).then(_ => done(), done);
   }
 }

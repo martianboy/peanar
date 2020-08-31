@@ -269,22 +269,9 @@ export default class PeanarApp {
   protected async _startWorker(queue: string, consumer: IConsumer<any>) {
     const worker = new Worker(this, consumer.channel, queue);
 
-    // TODO: Move consumer recovery logic to pool class
-
-    // consumer.channel.once('close', async (reason: CloseReason) => {
-    //   debug(`Consumer channel on queue '${queue}' closed abruptly.`);
-
-    //   consumer.unpipe(worker);
-    //   const queue_consumers = this.consumers.get(queue) || [];
-    //   queue_consumers.splice(queue_consumers.indexOf(consumer), 1);
-
-    //   if (reason && reason.reply_code >= 300) {
-    //     debug(`Openning another consumer on queue '${queue}'.`);
-    //     const new_consumer = await this.broker.consume(queue);
-    //     this._registerConsumer(queue, new_consumer);
-    //     consumer.pipe(worker);
-    //   }
-    // });
+    consumer.on('channelChanged', ch => {
+      worker.channel = ch;
+    });
 
     this._registerConsumer(queue, consumer);
     this._registerWorker(queue, worker);
@@ -317,7 +304,7 @@ export default class PeanarApp {
 
     const queues_to_start = [...worker_queues].flatMap(q => Array(concurrency).fill(q));
 
-    return Promise.all((await this.broker.consumeOver(queues_to_start)).map(async p => {
+    return Promise.all(this.broker.consumeOver(queues_to_start).map(async p => {
       const { queue, consumer} = await p;
 
       return this._startWorker(queue, consumer);
