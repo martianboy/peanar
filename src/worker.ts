@@ -106,7 +106,7 @@ export default class PeanarWorker extends Transform {
 
       this.destroy_cb = (err) => {
         if (this.activeJob) {
-          this.log('cancelling active job')
+          this.log('cancelling active job');
           this.activeJob.cancel();
         }
         this.state = EWorkerState.CLOSED;

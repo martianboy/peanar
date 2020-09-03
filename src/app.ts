@@ -11,6 +11,7 @@ import { Writable, TransformCallback } from 'stream';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import Registry from './registry';
 import { IConsumer } from 'ts-amqp/dist/interfaces/Consumer';
+import PeanarTransactor from './transact';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -80,7 +81,7 @@ interface IWorkerOptions {
   prefetch?: number;
 }
 
-enum EAppState {
+export enum EAppState {
   RUNNING = 'RUNNING',
   CLOSING = 'CLOSING',
   CLOSED = 'CLOSED'
@@ -96,6 +97,7 @@ export default class PeanarApp {
   protected consumers: Map<string, IConsumer<any>[]> = new Map;
   protected workers: Map<string, Worker[]> = new Map;
   protected jobs: Map<string, (...args: unknown[]) => Promise<unknown>> = new Map;
+  protected transactions: Set<PeanarTransactor> = new Set();
 
   public state: EAppState = EAppState.RUNNING;
 
@@ -112,16 +114,25 @@ export default class PeanarApp {
 
   protected async _shutdown(timeout?: number) {
     // Immediately stop receiving new messages
-    await Promise.all([...this.consumers.values()].flat().map(c => c.cancel()))
-    debug('shutdown(): consumers cancelled')
+    await Promise.all([...this.consumers.values()].flat().map(c => c.cancel()));
+    debug('shutdown(): consumers cancelled');
 
-    // Wait a few seconds for running jobs to finish their work
-    await Promise.all([...this.workers.values()].flat().map(w => w.shutdown(timeout)))
-    debug('shutdown(): workers shut down')
+    // Anything that is subject to the timeout should go in here
+    await Promise.all([
+      // Wait a few seconds for running jobs to finish their work
+      ...[...this.workers.values()].flat().map(w => w.shutdown(timeout)),
+
+      // Also wait for pending transactions to be finalized
+      ...[...this.transactions].map(t => t.waitUntil(timeout).catch(() => {
+        this.log(`Transaction ${t.queueName} timed out while shutting down Peanar.`);
+      })),
+    ]);
+    debug('shutdown(): workers shut down');
+    debug('shutdown(): transactions concluded');
 
     // Close the channel pool and then the amqp connection
     await this.broker.shutdown();
-    debug('shutdown(): broker shut down')
+    debug('shutdown(): broker shut down');
   }
 
   public async shutdown(timeout?: number) {
@@ -225,14 +236,26 @@ export default class PeanarApp {
     return res;
   }
 
+  protected _createTransactor(def: IPeanarJobDefinition) {
+    return () => {
+      const t = new PeanarTransactor(def, this);
+      this.transactions.add(t);
+      t.once('conclude', () => this.transactions.delete(t));
+
+      return t;
+    }
+  }
+
   protected _createEnqueuer(def: IPeanarJobDefinition) {
     const self = this;
     function enqueueJob(...args: unknown[]): Promise<string> {
-      debug(`Peanar: job.enqueueJob('${def.name}')`)
-      return self.enqueueJobRequest(def, self._prepareJobRequest(def.name, args))
+      debug(`Peanar: job.enqueueJob('${def.name}')`);
+      return self.enqueueJobRequest(def, self._prepareJobRequest(def.name, args));
     }
 
     enqueueJob.rpc = async (...args: unknown[]) => {};
+    enqueueJob.transaction = this._createTransactor(def);
+
     return enqueueJob;
   }
 
@@ -289,7 +312,7 @@ export default class PeanarApp {
             this._enqueueJobResponse(result.job, result).then(_ => cb(), ex => cb(ex));
           }
           else {
-            return cb()
+            return cb();
           }
         }
       }));

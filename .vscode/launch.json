@@ -9,9 +9,9 @@
             "request": "launch",
             "name": "Launch Program",
             "protocol": "inspector",
-            "args": ["${workspaceRoot}/examples/workers.ts"],
+            "args": ["${workspaceRoot}/examples/publisher.ts"],
             "cwd": "${workspaceRoot}",
-            "runtimeArgs": ["-r", "ts-node/register"],
+            "runtimeArgs": ["-r", "ts-node/register", "--unhandled-rejections=strict"],
             "internalConsoleOptions": "openOnSessionStart",
             "env": {
                 "DEBUG": "*"

@@ -18,7 +18,10 @@ const enqueueDummy = app.job({
 async function main() {
   await app.declareAmqResources();
 
-  await enqueueDummy();
+  const t = enqueueDummy.transaction();
+  await t.begin();
+  await t.call();
+  await t.commit();
 
   // await new Promise(res => setTimeout(res, 100000));
   await shutdown()

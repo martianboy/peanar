@@ -29,7 +29,7 @@ function timeout(ms: number) {
 export default class NodeAmqpBroker {
   private config: IBrokerOptions;
   private conn?: Connection;
-  private _connectPromise?: Promise<void>;
+  private _connectPromise?: Promise<Connection>;
 
   private _channelConsumers = new Map<Channel, Set<Consumer>>();
 
@@ -109,6 +109,8 @@ export default class NodeAmqpBroker {
           this.connect();
         }
       });
+
+      return conn;
     }
 
     return (this._connectPromise = doConnect());
