@@ -27,6 +27,7 @@ export interface IPeanarJobDefinitionInput {
   error_exchange?: string;
   max_retries?: number;
   retry_delay?: number;
+  delayed_run_wait?: number;
 }
 
 export interface IPeanarJobDefinition {
@@ -44,6 +45,7 @@ export interface IPeanarJobDefinition {
   error_exchange?: string;
   max_retries?: number;
   retry_delay?: number;
+  delayed_run_wait?: number;
 }
 
 export interface IPeanarRequest {
@@ -165,11 +167,14 @@ export default class PeanarApp {
     return enqueue.apply(this, args);
   }
 
-  public async enqueueJobRequest(def: IPeanarJobDefinition, req: IPeanarRequest) {
-    debug(`Peanar: enqueueJob(${def.queue}:${def.name}})`);
-
+  protected async _publish(
+    routing_key: string,
+    exchange: string | undefined,
+    def: IPeanarJobDefinition,
+    req: IPeanarRequest
+  ) {
     if (this.state !== EAppState.RUNNING) {
-      throw new PeanarInternalError('PeanarApp::enqueueJobRequest() called while app is not in running state.');
+      throw new PeanarInternalError('PeanarApp::_publish() called while app is not in running state.');
     }
 
     const properties: IBasicProperties = {
@@ -182,8 +187,8 @@ export default class PeanarApp {
     }
 
     await this.broker.publish({
-      routing_key: def.routingKey,
-      exchange: def.exchange,
+      routing_key,
+      exchange,
       properties,
       body: {
         id: req.id,
@@ -193,6 +198,12 @@ export default class PeanarApp {
     });
 
     return req.id;
+  }
+
+  public async enqueueJobRequest(def: IPeanarJobDefinition, req: IPeanarRequest) {
+    debug(`Peanar: enqueueJob(${def.queue}:${def.name}})`);
+
+    return this._publish(def.routingKey, def.exchange, def, req);
   }
 
   protected async _enqueueJobResponse(job: PeanarJob, result: IWorkerResult) {
@@ -243,7 +254,18 @@ export default class PeanarApp {
       t.once('conclude', () => this.transactions.delete(t));
 
       return t;
-    }
+    };
+  }
+
+  protected _createDelayedEnqueuer(def: IPeanarJobDefinition) {
+    return (...args: unknown[]) => {
+      return this._publish(
+        `${def.queue}.delayed`,
+        '',
+        def,
+        this._prepareJobRequest(def.name, args)
+      );
+    };
   }
 
   protected _createEnqueuer(def: IPeanarJobDefinition) {
@@ -254,6 +276,7 @@ export default class PeanarApp {
     }
 
     enqueueJob.rpc = async (...args: unknown[]) => {};
+    enqueueJob.delayed = this._createDelayedEnqueuer(def);
     enqueueJob.transaction = this._createTransactor(def);
 
     return enqueueJob;

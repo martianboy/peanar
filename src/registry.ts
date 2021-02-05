@@ -54,11 +54,19 @@ export default class Registry {
         deadLetterExchange: def.retry_exchange,
         deadLetterRoutingKey: '#'
       }, true);
-
-      this.registerExchange(`${def.queue}.retry-requeue`, 'topic');
-      this.registerBinding(`${def.queue}.retry-requeue`, '#', def.queue);
     } else {
       this.registerQueue(def.queue, {}, true);
+    }
+
+    this.registerExchange(`${def.queue}.retry-requeue`, 'topic');
+    this.registerBinding(`${def.queue}.retry-requeue`, '#', def.queue);
+
+    if (Number(def.delayed_run_wait) > 0) {
+      this.registerQueue(`${def.queue}.delayed`, {
+        messageTtl: def.delayed_run_wait,
+        deadLetterExchange: `${def.queue}.retry-requeue`,
+        deadLetterRoutingKey: '#'
+      }, true);
     }
 
     if (def.exchange && def.exchange.length > 0) {

@@ -6,24 +6,6 @@ import { PeanarAdapterError, PeanarJobError, PeanarJobCancelledError, PeanarInte
 import PeanarApp, { IPeanarRequest, IPeanarJobDefinition } from "./app";
 import { Channel } from 'amqplib';
 
-const fib_seq = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584];
-
-function fib(n: number, m: number = 1): number {
-  if (n > fib_seq.length) {
-    for (let i = fib_seq.length; i < n; i++) {
-      fib_seq[i] = fib_seq[i - 1] + fib_seq[i - 2];
-    }
-  }
-
-  return m * fib_seq[n - 1];
-}
-
-function exponential(n: number, m: number = 1) {
-  return Math.round(
-    m * 0.5 * (Math.pow(2, n) - 1)
-  );
-}
-
 export default class PeanarJob extends EventEmitter {
   public id: string;
   public name: string;
