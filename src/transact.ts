@@ -143,7 +143,7 @@ class PeanarTransactor extends EventEmitter {
     let consumeCounter = 0;
 
     const consumerPromise = new Promise(res => {
-      resolveFn = res;
+      resolveFn = () => res(undefined);
     });
 
     const consumerCallback = () => {
