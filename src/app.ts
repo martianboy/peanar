@@ -351,7 +351,7 @@ export default class PeanarApp {
     const queues_to_start = [...worker_queues].flatMap(q => Array(concurrency).fill(q));
 
     return Promise.all(this.broker.consumeOver(queues_to_start).map(async p => {
-      const { queue, consumer} = await p;
+      const { queue, consumer } = await p;
 
       return this._startWorker(queue, consumer);
     }));
