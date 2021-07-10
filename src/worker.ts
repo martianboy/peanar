@@ -4,7 +4,7 @@ const debug = debugFn('peanar:worker');
 import util from 'util';
 import 'colors';
 
-import { Transform, TransformCallback } from 'stream'
+import { Transform, TransformCallback } from 'stream';
 import PeanarApp, { IPeanarRequest, IPeanarJob } from './app';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 import PeanarJob from './job';
