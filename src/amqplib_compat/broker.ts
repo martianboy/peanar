@@ -216,7 +216,7 @@ export default class NodeAmqpBroker {
     }, ex => Promise.reject(ex));
   }
 
-  public consume(queue: string): Promise<Consumer> {
+  public consume(queue: string): PromiseLike<Consumer> {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return this.pool.acquireAndRun(async ch => this._startConsumer(ch, queue));

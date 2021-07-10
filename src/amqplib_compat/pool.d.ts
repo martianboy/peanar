@@ -24,8 +24,8 @@ export default class ChannelPool extends EventEmitter {
     open(): Promise<void>;
     close(): Promise<void>;
     acquire(): Promise<ChannelWithReleaser>;
-    mapOver<T, R>(arr: T[], fn: (ch: Channel, item: T) => Promise<R>): Promise<R>[];
-    acquireAndRun<R>(fn: (ch: Channel) => Promise<R>): Promise<R>;
+    mapOver<T, R>(arr: T[], fn: (ch: Channel, item: T) => PromiseLike<R>): PromiseLike<R>[];
+    acquireAndRun<R>(fn: (ch: Channel) => PromiseLike<R>): PromiseLike<R>;
     private onChannelClose;
     private openChannel;
     private releaser;
