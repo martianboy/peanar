@@ -206,7 +206,7 @@ export default class PeanarWorker extends Transform {
 
       this.log(`Job ${job.name}:${job.id} was acked.`);
     } catch (ex) {
-      if (ex instanceof PeanarJobCancelledError) {
+      if (ex instanceof PeanarJobCancelledError || job.cancelled) {
         this.log(`job ${job.id} was cancelled.`);
         return;
       }

@@ -50,6 +50,10 @@ export default class PeanarJob extends EventEmitter {
     this.controller.abort()
   }
 
+  get cancelled() {
+    return this.controller.signal.aborted
+  }
+
   ack() {
     if (!this.channel)
       throw new PeanarAdapterError("Worker: AMQP connection lost!");
