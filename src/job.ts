@@ -20,7 +20,7 @@ export default class PeanarJob extends EventEmitter {
   public attempt: number;
   public max_retries: number;
 
-  public cancelled: boolean = false;
+  protected controller = new AbortController()
 
   constructor(
     req: IPeanarRequest,
@@ -46,9 +46,8 @@ export default class PeanarJob extends EventEmitter {
     this.app = app;
   }
 
-  cancel(reason?: Error) {
-    this.cancelled = true;
-    this.emit('cancel', new PeanarJobCancelledError(reason));
+  cancel() {
+    this.controller.abort()
   }
 
   ack() {
@@ -58,7 +57,7 @@ export default class PeanarJob extends EventEmitter {
     if (!this.deliveryTag)
       throw new PeanarJobError("Worker: No deliveryTag set!");
 
-    if (!this.cancelled) {
+    if (!this.controller.signal.aborted) {
       // @ts-ignore
       this.channel.ack({ fields: { deliveryTag: Number(this.deliveryTag) } }, false);
       debug(`PeanarJob#${this.id}: Acknowledged!`);
@@ -182,7 +181,7 @@ export default class PeanarJob extends EventEmitter {
   }
 
   _perform() {
-    return this.handler.apply(this, this.args)
+    return this.handler.apply(this, this.args.concat({ signal: this.controller.signal }))
   }
 
   perform() {
