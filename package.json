@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "test": "yarn node ./scripts/start-rabbitmq.js",
-    "build": "yarn tsc",
+    "build": "yarn tsc -p tsconfig.build.json",
     "prepublishOnly": "yarn build"
   },
   "repository": {
