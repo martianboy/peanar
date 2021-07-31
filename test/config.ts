@@ -2,8 +2,8 @@ import { IBrokerOptions } from '../src/broker';
 
 export const brokerOptions: IBrokerOptions = {
   connection: {
-    host: process.env.RABBITMQ_HOST,
-    port: parseInt(process.env.RABBITMQ_PORT),
+    host: process.env.RABBITMQ_HOST ?? '',
+    port: parseInt(process.env.RABBITMQ_PORT ?? ''),
     username: 'guest',
     password: 'guest',
     vhost: '/',

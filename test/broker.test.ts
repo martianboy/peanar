@@ -1,8 +1,8 @@
 import { expect } from 'chai';
+import { brokerOptions } from './config';
 
 describe('Broker', () => {
   it('can access rabbitmq', () => {
-    console.log(process.env.RABBITMQ_HOST);
-    expect(process.env.RABBITMQ_HOST).not.to.be.empty;
+    expect(brokerOptions.connection!.host, 'RABBITMQ_HOST').not.to.be.undefined;
   })
 });
