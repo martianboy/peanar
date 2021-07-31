@@ -4,7 +4,7 @@
   "description": "A job queue for Node.js based on RabbitMQ",
   "main": "dist/index.js",
   "scripts": {
-    "test": "yarn mocha",
+    "test": "yarn node ./scripts/start-rabbitmq.js",
     "build": "yarn tsc",
     "prepublishOnly": "yarn build"
   },

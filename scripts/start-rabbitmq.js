@@ -37,7 +37,7 @@ function checkPorts(container, { signal }) {
     try {
       const socket = net.connect({ host: ip, port: '5672', timeout: 500 }, () => {
         socket.destroy();
-        resolve();
+        resolve(ip);
       });
     } catch (ex) {
       if (signal.aborted) {
@@ -75,17 +75,15 @@ async function main() {
     container = docker.container.get(container.id)
   }
 
-  await checkPorts(container, { signal: acShutdown.signal });
+  const ip = await checkPorts(container, { signal: acShutdown.signal });
 
-  console.log('RabbitMQ is up and running!');
   const child = child_process.spawn('yarn', ['mocha'], {
     env: {
-      RABBITMQ_HOST: container?.data?.NetworkSettings?.Networks?.bridge?.IPAddress,
+      RABBITMQ_HOST: ip,
       RABBITMQ_PORT: '5672'
     }
   });
   child.stdout.pipe( process.stdout );
-  console.log(child.pid);
 }
 
 main().catch(ex => console.error(ex))
