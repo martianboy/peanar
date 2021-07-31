@@ -88,6 +88,7 @@ export default class NodeAmqpBroker {
       });
       this.pool.on('channelReplaced', (ch, newCh) => {
         this.rewireConsumersOnChannel(ch, newCh).catch(ex => {
+          debug('Failed to rewire consumers on a disconnected channel.');
           console.error(ex);
         });
       });
@@ -180,6 +181,7 @@ export default class NodeAmqpBroker {
     if (!set || set.size < 1) return;
 
     for (const consumer of set) {
+      await this.pool?.setPrefetchOnChannel(newCh, consumer.prefetch);
       const res = await newCh.consume(consumer.queue, (msg: ConsumeMessage | null) => {
         if (msg && consumer) {
           consumer.handleDelivery(msg);
@@ -195,15 +197,16 @@ export default class NodeAmqpBroker {
     this._channelConsumers.set(ch, set);
   }
 
-  private async _startConsumer(ch: Channel, queue: string): Promise<Consumer> {
+  private async _startConsumer(ch: Channel, queue: string, options?: { prefetch?: number }): Promise<Consumer> {
     let consumer: Consumer | null;
 
+    await this.pool?.setPrefetchOnChannel(ch, options?.prefetch ?? 1);
     return await ch.consume(queue, (msg: ConsumeMessage | null) => {
       if (msg && consumer) {
         consumer.handleDelivery(msg);
       }
     }).then((res: Replies.Consume) => {
-      consumer = new Consumer(ch, res.consumerTag, queue);
+      consumer = new Consumer(ch, res.consumerTag, queue, options?.prefetch);
 
       if (!this._channelConsumers.has(ch)) {
         this._channelConsumers.set(ch, new Set([consumer]));
@@ -216,19 +219,19 @@ export default class NodeAmqpBroker {
     }, ex => Promise.reject(ex));
   }
 
-  public consume(queue: string): PromiseLike<Consumer> {
+  public consume(queue: string, options?: { prefetch?: number }): PromiseLike<Consumer> {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    return this.pool.acquireAndRun(async ch => this._startConsumer(ch, queue));
+    return this.pool.acquireAndRun(async ch => this._startConsumer(ch, queue, options));
   }
 
-  public consumeOver(queues: string[]) {
+  public consumeOver(queues: string[], options?: { prefetch?: number }) {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return this.pool.mapOver(queues, async (ch, queue) => {
       return {
         queue,
-        consumer: await this._startConsumer(ch, queue)
+        consumer: await this._startConsumer(ch, queue, options)
       };
     });
   }
@@ -256,7 +259,6 @@ export default class NodeAmqpBroker {
 
     const _doPublish = async (): Promise<boolean> => {
       const { channel, release } = await _doAcquire()
-      debug(`publish to channel`);
 
       try {
         if (channel.publish(

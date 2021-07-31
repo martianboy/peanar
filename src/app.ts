@@ -28,6 +28,7 @@ export interface IPeanarJobDefinitionInput {
   max_retries?: number;
   retry_delay?: number;
   delayed_run_wait?: number;
+  prefetch_timeout?: number;
 }
 
 export interface IPeanarJobDefinition {
@@ -46,6 +47,7 @@ export interface IPeanarJobDefinition {
   max_retries?: number;
   retry_delay?: number;
   delayed_run_wait?: number;
+  prefetch_timeout?: number;
 }
 
 export interface IPeanarRequest {
@@ -350,7 +352,7 @@ export default class PeanarApp {
 
     const queues_to_start = [...worker_queues].flatMap(q => Array(concurrency).fill(q));
 
-    return Promise.all(this.broker.consumeOver(queues_to_start).map(async p => {
+    return Promise.all(this.broker.consumeOver(queues_to_start, { prefetch }).map(async p => {
       const { queue, consumer } = await p;
 
       return this._startWorker(queue, consumer);

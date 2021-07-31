@@ -5,7 +5,7 @@ import util from 'util';
 import 'colors';
 
 import { Transform, TransformCallback } from 'stream';
-import PeanarApp, { IPeanarRequest, IPeanarJob } from './app';
+import PeanarApp, { IPeanarRequest, IPeanarJob, IPeanarJobDefinition } from './app';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 import PeanarJob from './job';
 import { PeanarInternalError, PeanarJobCancelledError } from './exceptions';
@@ -28,7 +28,7 @@ export interface IDeathInfo {
   queue: string;
   time: bigint;
   exchange: string,
-  'routing-keys': string[]
+  'routing-keys': string[];
 }
 
 enum EWorkerState {
@@ -41,7 +41,9 @@ enum EWorkerState {
 let counter = 0;
 const SHUTDOWN_TIMEOUT = 10000;
 
-const _to_ack = new Set<string>();
+// To keep track of job ids in case of loosing the
+// channel, right before we acknowledge the message.
+const ack_queue = new Set<string>();
 
 export default class PeanarWorker extends Transform {
   private app: PeanarApp;
@@ -164,23 +166,20 @@ export default class PeanarWorker extends Transform {
       ? (headers['x-death'] as IDeathInfo[]).find(d => d.queue === def.queue)
       : undefined;
 
-    const req: IPeanarJob = {
-      ...def,
+    const req: IPeanarRequest = {
+      name: def.name,
       deliveryTag: delivery.envelope.deliveryTag,
-      replyTo: delivery.properties.replyTo,
       correlationId: delivery.properties.correlationId,
-      queue: this.queue,
       args: body.args,
       id: body.id,
       attempt: deathInfo ? Number(deathInfo.count) + 1 : 1
     };
 
-    if (delivery.properties.replyTo) {
-      req.replyTo = delivery.properties.replyTo;
+    if (def.replyTo) {
       req.correlationId = delivery.properties.correlationId;
     }
 
-    return new this.app.jobClass(req, def, this.app, this._channel);
+    return { req, def };
   }
 
   private async run(job: PeanarJob) {
@@ -189,7 +188,7 @@ export default class PeanarWorker extends Transform {
 
     try {
       const result = await job.perform();
-      _to_ack.add(job.id);
+      ack_queue.add(job.id);
       this.log(`_to_ack.add(${job.id});`);
 
       this.push({
@@ -201,7 +200,7 @@ export default class PeanarWorker extends Transform {
       this.log(`Job ${job.name}:${job.id} SUCCESS!`);
 
       job.ack();
-      _to_ack.delete(job.id);
+      ack_queue.delete(job.id);
       this.log(`_to_ack.delete(${job.id});`);
 
       this.log(`Job ${job.name}:${job.id} was acked.`);
@@ -231,9 +230,9 @@ export default class PeanarWorker extends Transform {
     }
   }
 
-  _transform(delivery: IDelivery, _encoding: string, cb: TransformCallback) {
+  _transform(deliveries: IDelivery[], _encoding: string, cb: TransformCallback) {
     if (this.app.state === "CLOSING" || this.app.state === "CLOSED") {
-      this.log(`Received job ${Number(delivery.envelope.deliveryTag)} while shutting down. Holding on to it...`);
+      this.log(`Received ${deliveries.length} job(s) while shutting down. Holding on to it...`);
       return cb();
     }
 
@@ -254,28 +253,42 @@ export default class PeanarWorker extends Transform {
     const startProcessing = () => {
       this.state = EWorkerState.WORKING;
 
-      let job = undefined;
-      try {
-        job = this._getJob(delivery);
-      } catch (ex) {
-        // @ts-ignore
-        this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
-        return done(ex);
-      }
+      let jobs = deliveries.reduce((map, delivery) => {
+        let job: {
+          req: IPeanarRequest;
+          def: IPeanarJobDefinition;
+        } | undefined;
+        try {
+          job = this._getJob(delivery);
+        } catch (ex) {
+          // @ts-ignore
+          this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
+          return map;
+        }
+  
+        if (!job) {
+          // @ts-ignore
+          this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
+          return map;
+        }
 
-      if (!job) {
-        // @ts-ignore
-        this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
+        if (ack_queue.has(job.req.id)) {
+          this.log(`Job ${job.req.name}:${job.req.id} will be acked from pending list.`);
+          // @ts-ignore
+          this.channel.ack({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
+          ack_queue.delete(job.req.id);
+          return map;
+        }
 
-        return done();
-      }
+        if (!map.has(job.req.name)) {
+          map.set(job.req.name, []);
+        }
+        map.get(job.req.name)!.push({ ...job.def, ...job.req, deliveryTag: delivery.envelope.deliveryTag });
 
-      if (_to_ack.has(job.id)) {
-        this.log(`Job ${job.name}:${job.id} will be acked from pending list.`);
-        job.ack();
-        _to_ack.delete(job.id);
-        return done();
-      }
+        return map;
+      }, new Map<string, IPeanarJob>());
+
+      let job;
 
       this.run(job).then(_ => done(), done);
     }

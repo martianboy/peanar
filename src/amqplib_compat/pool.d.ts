@@ -14,7 +14,6 @@ export default class ChannelPool extends EventEmitter {
     private _conn;
     private _size;
     private _isOpen;
-    private prefetch?;
     constructor(connection: Connection, size: number, prefetch?: number);
     private softCleanUp;
     private hardCleanUp;
@@ -23,9 +22,10 @@ export default class ChannelPool extends EventEmitter {
     readonly isOpen: boolean;
     open(): Promise<void>;
     close(): Promise<void>;
+    setPrefetchOnChannel(ch: Channel, prefetch: number): PromiseLike<void>;
     acquire(): Promise<ChannelWithReleaser>;
-    mapOver<T, R>(arr: T[], fn: (ch: Channel, item: T) => PromiseLike<R>): PromiseLike<R>[];
     acquireAndRun<R>(fn: (ch: Channel) => PromiseLike<R>): PromiseLike<R>;
+    mapOver<T, R>(arr: T[], fn: (ch: Channel, item: T) => PromiseLike<R>): PromiseLike<R>[];
     private onChannelClose;
     private openChannel;
     private releaser;

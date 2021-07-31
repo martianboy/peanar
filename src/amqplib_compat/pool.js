@@ -12,13 +12,12 @@ class ChannelPool extends EventEmitter {
 
   _isOpen = false;
 
-  constructor(connection, size, prefetch = 1) {
+  constructor(connection, size) {
     super();
 
     /** @type {import('amqplib').Connection} */
     this._conn = connection;
     this._size = size;
-    this.prefetch = prefetch;
 
     // this._conn.once('closing', this.softCleanUp);
     this._conn.once('close', this.hardCleanUp);
@@ -165,10 +164,9 @@ class ChannelPool extends EventEmitter {
 
   async openChannel() {
     const ch = await this._conn.createChannel();
+    ch._prefetchCount = 1;
     ch.once('close', this.onChannelClose.bind(this, ch));
     ch.once('error', this.onChannelError.bind(this, ch));
-
-    if (this.prefetch) await ch.prefetch(this.prefetch, false);
 
     setImmediate(() => this.dispatchChannels());
 
@@ -188,14 +186,23 @@ class ChannelPool extends EventEmitter {
     this.dispatchChannels();
   }
 
+  async setPrefetchOnChannel(ch, prefetch) {
+    if (typeof prefetch !== 'number') return
+
+    if (ch._prefetchCount !== prefetch) {
+      await ch.prefetch(prefetch, false);
+      ch._prefetchCount = prefetch;
+    }
+  }
+
   dispatchChannels() {
     while (this._queue.length > 0 && this._pool.length > 0) {
-      const dispatcher = this._queue.shift();
+      const request = this._queue.shift();
       const ch = this._pool.shift();
       const acquisition = new Promise(res => this._releaseResolvers.set(ch, res));
       this._acquisitions.set(ch, acquisition);
 
-      dispatcher.resolve({
+      request.resolve({
         channel: ch,
         release: this.releaser.bind(this, ch)
       });

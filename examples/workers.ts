@@ -31,7 +31,7 @@ async function main() {
   await app.worker({
     queues: ['dummy'],
     concurrency: 3,
-    prefetch: 1
+    prefetch: 3
   });
 
   // interval = setInterval(() => {
