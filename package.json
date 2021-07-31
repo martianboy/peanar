@@ -4,9 +4,9 @@
   "description": "A job queue for Node.js based on RabbitMQ",
   "main": "dist/index.js",
   "scripts": {
-    "test": "npx mocha",
-    "build": "npx tsc",
-    "prepublishOnly": "npm run build"
+    "test": "yarn mocha",
+    "build": "yarn tsc",
+    "prepublishOnly": "yarn build"
   },
   "repository": {
     "type": "git",
@@ -32,11 +32,15 @@
   "homepage": "https://github.com/martianboy/peanar#readme",
   "devDependencies": {
     "@types/amqplib": "^0.8.1",
+    "@types/chai": "^4.2.21",
     "@types/colors": "^1.2.1",
     "@types/debug": "^4.1.7",
+    "@types/mocha": "^9.0.0",
     "@types/node": "^16.4.8",
     "@types/uuid": "^8.3.1",
+    "chai": "^4.3.4",
     "eslint": "^7.32.0",
+    "mocha": "^9.0.3",
     "ts-node": "^10.1.0",
     "typescript": "^4.3.5"
   },
@@ -44,6 +48,7 @@
     "amqplib": "^0.8.0",
     "colors": "^1.4.0",
     "debug": "^4.3.2",
+    "node-docker-api": "^1.1.22",
     "ts-amqp": "^0.8.1",
     "uuid": "^8.3.2"
   }

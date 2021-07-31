@@ -10,7 +10,7 @@ import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
 import { ICloseReason } from 'ts-amqp/dist/interfaces/Protocol';
 import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
 
-interface IBrokerOptions {
+export interface IBrokerOptions {
   connection?: IConnectionParams;
   poolSize: number;
   prefetch?: number;

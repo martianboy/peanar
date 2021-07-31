@@ -1,0 +1,42 @@
+name: Peanar
+on: push
+
+jobs:
+  # Label of the container job
+  container-job:
+    # Containers must run in Linux based operating systems
+    runs-on: ubuntu-latest
+    # Docker Hub image that `container-job` executes in
+    container: node:16-jessie
+
+    # Service containers to run with `container-job`
+    services:
+      # Label used to access the service container
+      rabbitmq:
+        # Docker Hub image
+        image: rabbitmq:management
+        # Set health checks to wait until redis has started
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 30s
+          --health-timeout 30s
+          --health-retries 5
+
+    steps:
+      # Downloads a copy of the code in your repository before running CI tests
+      - name: Check out repository code
+        uses: actions/checkout@v2
+      - name: Use Node.js v16
+        uses: actions/setup-node@v2
+        with:
+          node-version: '16'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn
+
+      - name: Run the test suite
+        run: yarn test
+        env:
+          RABBITMQ_HOST: rabbitmq
+          RABBITMQ_PORT: 5672
