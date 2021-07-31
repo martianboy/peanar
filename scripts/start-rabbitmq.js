@@ -77,13 +77,13 @@ async function main() {
 
   const ip = await checkPorts(container, { signal: acShutdown.signal });
 
-  const child = child_process.spawn('yarn', ['mocha'], {
+  child_process.spawn('yarn', ['mocha', '--colors'], {
+    stdio: 'inherit',
     env: {
       RABBITMQ_HOST: ip,
       RABBITMQ_PORT: '5672'
     }
   });
-  child.stdout.pipe( process.stdout );
 }
 
 main().catch(ex => console.error(ex))
