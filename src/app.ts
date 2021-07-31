@@ -206,21 +206,6 @@ export default class PeanarApp {
     return this._publish(def.routingKey, def.exchange, def, req);
   }
 
-  protected async _enqueueJobResponse(job: PeanarJob, result: IWorkerResult) {
-    debug('Peanar: _enqueueJobResponse()')
-
-    if (!job.def.replyTo) throw new PeanarInternalError('PeanarApp::_enqueueJobResponse() called with no replyTo defined')
-
-    await this.broker.publish({
-      routing_key: job.def.replyTo,
-      exchange: '',
-      properties: {
-        correlationId: job.correlationId || job.id
-      },
-      body: this._prepareJobResponse(job, result)
-    });
-  }
-
   protected _prepareJobRequest(name: string, args: any[]): IPeanarRequest {
     return {
       id: uuid.v4(),
@@ -228,23 +213,6 @@ export default class PeanarApp {
       args,
       attempt: 1
     };
-  }
-
-  protected _prepareJobResponse(job: PeanarJob, result: IWorkerResult): IPeanarResponse {
-    const res: IPeanarResponse = {
-      id: job.id,
-      name: job.name,
-      status: result.status,
-    };
-
-    if (result.status === 'SUCCESS') {
-      res.result = result.result;
-    }
-    else {
-      res.error = result.error;
-    }
-
-    return res;
   }
 
   protected _createTransactor(def: IPeanarJobDefinition) {
@@ -331,12 +299,7 @@ export default class PeanarApp {
             this.log(result.error);
           }
 
-          if (result.job.def.replyTo) {
-            this._enqueueJobResponse(result.job, result).then(_ => cb(), ex => cb(ex));
-          }
-          else {
-            return cb();
-          }
+          cb();
         }
       }));
   }

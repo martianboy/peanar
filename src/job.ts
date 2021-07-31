@@ -47,11 +47,11 @@ export default class PeanarJob extends EventEmitter {
   }
 
   cancel() {
-    this.controller.abort()
+    this.controller.abort();
   }
 
   get cancelled() {
-    return this.controller.signal.aborted
+    return this.controller.signal.aborted;
   }
 
   ack() {
@@ -195,7 +195,26 @@ export default class PeanarJob extends EventEmitter {
       const callResolve = (result: unknown) => {
         if (!already_finished) {
           already_finished = true;
+
+          if (this.def.replyTo) {
+            this.app.broker.publish({
+              routing_key: this.def.replyTo,
+              exchange: '',
+              properties: {
+                correlationId: this.correlationId || this.id
+              },
+              body:  {
+                id: this.id,
+                name: this.name,
+                status: 'SUCCESS',
+                result
+              }
+            });
+          }
+
           debug(`PeanarJob#${this.id}: (callResolve) not finished. all good. resolving...`);
+          // prevent memory leak
+          this.controller.signal.removeEventListener('abort', onCancelled);
           resolve(result);
         }
       }
@@ -203,6 +222,23 @@ export default class PeanarJob extends EventEmitter {
       const callReject = (ex: unknown) => {
         if (!already_finished) {
           already_finished = true;
+
+          if (this.def.replyTo) {
+            this.app.broker.publish({
+              routing_key: this.def.replyTo,
+              exchange: '',
+              properties: {
+                correlationId: this.correlationId || this.id
+              },
+              body:  {
+                id: this.id,
+                name: this.name,
+                status: 'SUCCESS',
+                error: ex
+              }
+            });
+          }
+
           debug(`PeanarJob#${this.id}: (callReject) not finished. rejecting.`);
           reject(ex);
         } else {
@@ -210,8 +246,12 @@ export default class PeanarJob extends EventEmitter {
         }
       }
 
+      const onCancelled = () => {
+        callReject(new PeanarJobCancelledError());
+      }
+
       this._perform().then(callResolve, callReject);
-      this.once('cancel', callReject);
+      this.controller.signal.addEventListener('abort', onCancelled, { once: true });
     });
   }
 }
