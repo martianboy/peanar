@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 const { EventEmitter } = require('events');
 const debugFn = require('debug');
 const debug = debugFn('peanar:pool');
@@ -175,6 +177,9 @@ class ChannelPool extends EventEmitter {
     return ch;
   }
 
+  /**
+   * @param {import('amqplib').Channel} ch
+   */
   releaser(ch) {
     // debug(`ChannelPool: channel ${ch.channelNumber} released`);
     this._pool.push(ch);

@@ -73,9 +73,13 @@ export default class NodeAmqpBroker {
     const doConnect = async () => {
       debug('doConnect()');
 
-      const conn = await this._connectAmqp()
+      const conn = await this._connectAmqp();
 
-      this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
+      this.pool = new ChannelPool(
+        conn,
+        this.config.poolSize,
+        this.config.prefetch
+      );
 
       await this.pool.open();
 
