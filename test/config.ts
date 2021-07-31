@@ -1,4 +1,4 @@
-import { IBrokerOptions } from '../src/broker';
+import { IBrokerOptions } from '../src/amqplib_compat/broker';
 
 export const brokerOptions: IBrokerOptions = {
   connection: {
@@ -12,5 +12,5 @@ export const brokerOptions: IBrokerOptions = {
     retryDelay: 1000,
     locale: 'en-US'
   },
-  poolSize: 5
+  poolSize: 1
 };

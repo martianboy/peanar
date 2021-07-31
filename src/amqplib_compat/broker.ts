@@ -11,7 +11,7 @@ import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
 import Consumer from './consumer';
 import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 
-interface IBrokerOptions {
+export interface IBrokerOptions {
   connection?: IConnectionParams;
   poolSize: number;
   prefetch?: number;
