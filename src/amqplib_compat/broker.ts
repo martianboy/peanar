@@ -1,3 +1,5 @@
+import { setTimeout as timeout } from 'timers/promises';
+
 import debugFn from 'debug';
 const debug = debugFn('peanar:broker');
 
@@ -17,12 +19,6 @@ export interface IBrokerOptions {
   prefetch?: number;
 }
 
-function timeout(ms: number) {
-  return new Promise(res => {
-    setTimeout(res, ms)
-  })
-}
-
 /**
  * Peanar's broker adapter
  */
@@ -39,24 +35,28 @@ export default class NodeAmqpBroker {
     this.config = config
   }
 
-  private async _connectAmqp(retry = 1): Promise<Connection> {
-    debug(`_connectAmqp(${retry})`)
+  private async _connectAmqp(maxRetries = 5, retry = 0): Promise<Connection> {
+    debug(`_connectAmqp(${maxRetries}, ${retry})`);
     try {
       const c = this.config || {};
 
       const conn = (this.conn = await amqplib.connect({
-        hostname: c.connection ? c.connection.host : 'localhost',
-        port: c.connection ? c.connection.port : 5672,
-        username: c.connection ? c.connection.username : 'guest',
-        password: c.connection ? c.connection.password : 'guest',
-        vhost: c.connection ? c.connection.vhost : '/'
+        hostname: c.connection?.host ?? 'localhost',
+        port: c.connection?.port ?? 5672,
+        username: c.connection?.username ?? 'guest',
+        password: c.connection?.password ?? 'guest',
+        vhost: c.connection?.vhost ?? '/'
       }));
 
       return conn
     } catch (ex) {
       if (ex.code === 'ECONNREFUSED') {
+        if (retry === maxRetries) {
+          throw ex;
+        }
+
         await timeout(700 * retry);
-        return this._connectAmqp(retry + 1);
+        return this._connectAmqp(maxRetries, retry + 1);
       } else {
         console.error(ex);
         throw ex;
@@ -73,7 +73,7 @@ export default class NodeAmqpBroker {
     const doConnect = async () => {
       debug('doConnect()');
 
-      const conn = await this._connectAmqp();
+      const conn = await this._connectAmqp(this.config.connection?.maxRetries);
 
       this.pool = new ChannelPool(
         conn,
