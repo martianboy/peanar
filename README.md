@@ -1,4 +1,4 @@
-# Peanar
+# Peanar [![npm version](https://badge.fury.io/js/peanar.svg)](https://badge.fury.io/js/peanar)
 
 A background job queue for Node.js based on RabbitMQ
 
