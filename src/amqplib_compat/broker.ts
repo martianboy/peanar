@@ -55,7 +55,8 @@ export default class NodeAmqpBroker {
           throw ex;
         }
 
-        await timeout(700 * retry);
+        const delay = this.config.connection?.retryDelay ?? 700;
+        await timeout(delay * retry);
         return this._connectAmqp(maxRetries, retry + 1);
       } else {
         console.error(ex);
