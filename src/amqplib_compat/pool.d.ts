@@ -20,6 +20,7 @@ export default class ChannelPool extends EventEmitter {
     private hardCleanUp;
     [Symbol.asyncIterator](): AsyncIterableIterator<ChannelWithReleaser>;
     readonly size: number;
+    readonly numFreeChannels: number;
     readonly isOpen: boolean;
     open(): Promise<void>;
     close(): Promise<void>;

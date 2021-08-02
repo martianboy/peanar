@@ -59,6 +59,10 @@ class ChannelPool extends EventEmitter {
     return this._size;
   }
 
+  get numFreeChannels() {
+    return this._pool.length;
+  }
+
   get isOpen() {
     return this._isOpen;
   }
@@ -86,7 +90,8 @@ class ChannelPool extends EventEmitter {
     debug('ChannelPool: closing all channels');
     if (this._isOpen) {
       this._isOpen = false;
-      for (const ch of this._pool) {
+      while (this._pool.length > 0) {
+        const ch = this._pool.shift();
         ch.removeAllListeners('close');
         ch.removeAllListeners('error');
         await ch.close();

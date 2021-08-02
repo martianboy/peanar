@@ -4,11 +4,21 @@ import { brokerOptions } from './config';
 import Broker from '../src/amqplib_compat/broker';
 
 describe('Broker', () => {
-  it('can access rabbitmq', async () => {
+  it('can access RabbitMQ', async () => {
     expect(brokerOptions.connection!.host, 'RABBITMQ_HOST').not.to.be.undefined;
     const broker = new Broker(brokerOptions);
     await broker.connect();
     await broker.shutdown();
+  });
+
+  it('initializes the channel pool', async () => {
+    const broker = new Broker(brokerOptions);
+    await broker.connect();
+    expect(broker.pool).not.to.be.undefined;
+    expect(broker.pool?.isOpen).to.be.true;
+    expect(broker.pool?.numFreeChannels).to.be.equal(brokerOptions.poolSize);
+    await broker.shutdown();
+    expect(broker.pool?.numFreeChannels).to.be.equal(0);
   });
 
   it('throws an error if RabbitMQ unavailable', async () => {
