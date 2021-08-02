@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "test": "yarn node ./scripts/start-rabbitmq.js",
-    "build": "yarn tsc -p tsconfig.build.json",
+    "build": "yarn tsc -p tsconfig.build.json && cp src/amqplib_compat/pool* dist/amqplib_compat/",
     "prepublishOnly": "yarn build"
   },
   "repository": {
