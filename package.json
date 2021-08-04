@@ -31,6 +31,7 @@
   },
   "homepage": "https://github.com/martianboy/peanar#readme",
   "devDependencies": {
+    "@istanbuljs/nyc-config-typescript": "^1.0.1",
     "@types/amqplib": "^0.8.1",
     "@types/chai": "^4.2.21",
     "@types/colors": "^1.2.1",
@@ -43,6 +44,7 @@
     "eslint": "^7.32.0",
     "mocha": "^9.0.3",
     "node-fetch": "^2.6.1",
+    "nyc": "^15.1.0",
     "ts-node": "^10.1.0",
     "typescript": "^4.3.5"
   },

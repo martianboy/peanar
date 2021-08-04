@@ -40,3 +40,8 @@ jobs:
         env:
           RABBITMQ_HOST: rabbitmq
           RABBITMQ_PORT: 5672
+
+      - name: Codecov
+        uses: codecov/codecov-action@v2
+        with:
+          verbose: true
