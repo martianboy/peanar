@@ -36,7 +36,7 @@ jobs:
         run: yarn
 
       - name: Run the test suite
-        run: yarn mocha
+        run: yarn nyc mocha
         env:
           RABBITMQ_HOST: rabbitmq
           RABBITMQ_PORT: 5672
