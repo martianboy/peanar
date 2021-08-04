@@ -68,7 +68,7 @@ export default class NodeAmqpBroker {
   /**
    * Initializes adapter connection and channel
    */
-  public connect = async () => {
+  public connect = () => {
     if (this._connectPromise) return this._connectPromise;
 
     const doConnect = async () => {
@@ -110,6 +110,9 @@ export default class NodeAmqpBroker {
         }
 
         this._connectPromise = undefined;
+
+        // If RabbitMQ has closed the connection for a protocol error, try to
+        // restore the connection.
         if (err && err.code >= 300) {
           this.connect();
         }
@@ -128,8 +131,10 @@ export default class NodeAmqpBroker {
     if (!this.conn) throw new PeanarAdapterError('Shutdown: Not connected!');
 
     await this.pool.close();
-    this.conn.off('close', this.connect);
+    this.pool = undefined;
+
     await this.conn.close();
+    this.conn = undefined;
   }
 
   public async queues(queues: IQueue[]) {

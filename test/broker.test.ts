@@ -18,7 +18,17 @@ describe('Broker', () => {
     expect(broker.pool?.isOpen).to.be.true;
     expect(broker.pool?.numFreeChannels).to.be.equal(brokerOptions.poolSize);
     await broker.shutdown();
-    expect(broker.pool?.numFreeChannels).to.be.equal(0);
+    expect(broker.pool).to.be.undefined;
+  });
+
+  it('does not connect again using the same connection', async () => {
+    const broker = new Broker(brokerOptions);
+    const p1 = broker.connect();
+    const p2 = broker.connect();
+
+    expect(p1 === p2).to.be.true;
+    await p1;
+    await broker.shutdown();
   });
 
   it('throws an error if RabbitMQ unavailable', async () => {
