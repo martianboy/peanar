@@ -1,4 +1,6 @@
 import fetch, { Headers } from 'node-fetch';
+import debugFn from 'debug';
+const debug = debugFn('rabbitmq-http');
 
 const HOST = process.env.RABBITMQ_HOST;
 const PORT = 15672;
@@ -36,6 +38,7 @@ async function request(options: FetchOptions) {
     }
   }
 
+  debug(`${options.method} ${url.toString()}`);
   const resp = await fetch(url.toString(), {
     method: options.method,
     headers
@@ -65,4 +68,23 @@ export async function getConnections() {
 export async function getChannels() {
   const resp = await getList({ path: '/channels' });
   return resp.json();
+}
+
+export async function getVhosts() {
+  const resp = await getList({ path: '/vhosts' });
+  return resp.json();
+}
+
+export async function createVhost(name: string) {
+  return request({
+    path: '/vhosts/' + name,
+    method: 'PUT'
+  });
+}
+
+export async function deleteVhost(name: string) {
+  return request({
+    path: '/vhosts/' + name,
+    method: 'DELETE'
+  });
 }
