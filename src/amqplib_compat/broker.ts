@@ -23,11 +23,11 @@ export interface IBrokerOptions {
  * Peanar's broker adapter
  */
 export default class NodeAmqpBroker {
-  private config: IBrokerOptions;
-  private conn?: Connection;
-  private _connectPromise?: Promise<Connection>;
+  protected config: IBrokerOptions;
+  protected conn?: Connection;
+  protected _connectPromise?: Promise<Connection>;
 
-  private _channelConsumers = new Map<Channel, Set<Consumer>>();
+  protected _channelConsumers = new Map<Channel, Set<Consumer>>();
 
   public pool?: ChannelPool;
 
@@ -35,7 +35,7 @@ export default class NodeAmqpBroker {
     this.config = config
   }
 
-  private async _connectAmqp(maxRetries = 5, retry = 0): Promise<Connection> {
+  protected async _connectAmqp(maxRetries = 5, retry = 0): Promise<Connection> {
     debug(`_connectAmqp(${maxRetries}, ${retry})`);
     try {
       const c = this.config || {};
@@ -127,8 +127,8 @@ export default class NodeAmqpBroker {
   public async shutdown() {
     debug('shutdown()');
 
-    if (!this.pool) throw new PeanarAdapterError('Shutdown: Strange! Channel pool has not been initialized!');
     if (!this.conn) throw new PeanarAdapterError('Shutdown: Not connected!');
+    if (!this.pool) throw new PeanarAdapterError('Shutdown: Strange! Channel pool has not been initialized!');
 
     await this.pool.close();
     this.pool = undefined;

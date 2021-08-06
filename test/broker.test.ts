@@ -1,11 +1,25 @@
 import crypto from 'crypto';
 
 import { expect } from 'chai';
-import amqplib from 'amqplib';
+import amqplib, { Connection } from 'amqplib';
 
 import { brokerOptions } from './config';
 import Broker from '../src/amqplib_compat/broker';
 import { createVhost, deleteVhost } from './rabbitmq-http/client';
+
+class TestBroker extends Broker {
+  createConnection() {
+    return this._connectAmqp();
+  }
+
+  get connection(): Connection | undefined {
+    return this.conn;
+  }
+
+  set connection(conn: Connection | undefined) {
+    this.conn = conn;
+  }
+}
 
 describe('Broker', () => {
   describe('Connection', function() {
@@ -123,6 +137,69 @@ describe('Broker', () => {
       }]);
 
       await broker.pool!.acquireAndRun(ch => ch.checkExchange('e1'));
+    });
+
+    it('can bind exchanges to queues', async () => {
+      await broker.bindings([{
+        exchange: 'e1',
+        queue: 'q1',
+        routing_key: '#'
+      }]);
+
+      await broker.pool!.acquireAndRun(ch => ch.checkExchange('e1'));
+    });
+
+    it('can publish a message to an exchange', async function() {
+      const payload = { username: 'martianboy' };
+      await broker.publish({
+        routing_key: '#',
+        exchange: 'e1',
+        body: payload
+      });
+
+      await broker.pool!.acquireAndRun(async ch => {
+        let resolveFn: (msg: amqplib.ConsumeMessage | null) => void;
+        const promise = new Promise<amqplib.ConsumeMessage | null>(resolve => {
+          resolveFn = resolve;
+        });
+
+        const consumer = await ch.consume('q1', msg => resolveFn(msg));
+
+        const delivery = await promise;
+        await ch.cancel(consumer.consumerTag);
+
+        if (!delivery) throw new Error();
+        const body = JSON.parse(delivery.content.toString('utf-8'));
+        expect(body).to.include(payload);
+      });
+    });
+  });
+
+  describe('Error handling', function() {
+    describe('#shutdown()', function() {
+      it('throws when not connected', async function() {
+        const broker = new Broker(brokerOptions);
+        try {
+          await broker.shutdown();
+          throw new Error('Expected an error but none was thrown.');
+        } catch (ex) {
+          return;
+        }
+      });
+
+      it('throws when pool hasn\'t been initialized', async function() {
+        const broker = new TestBroker(brokerOptions);
+        broker.connection = await broker.createConnection();
+
+        try {
+          await broker.shutdown();
+          throw new Error('Expected an error but none was thrown.');
+        } catch (ex) {
+          return;
+        } finally {
+          await broker.connection.close();
+        }
+      });
     });
   });
 });
