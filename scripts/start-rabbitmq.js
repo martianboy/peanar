@@ -1,7 +1,9 @@
 'use strict';
 const child_process = require('child_process');
 const net = require('net');
+const { setTimeout: timeout } = require('timers/promises');
 const { Docker } = require('node-docker-api');
+const debug = require('debug')('docker');
 
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
@@ -35,6 +37,7 @@ function checkPorts(container, { signal }) {
 
   return new Promise((resolve, reject) => {
     try {
+      debug(`Connecting to ${ip} on port 5672...`);
       const socket = net.connect({ host: ip, port: '5672', timeout: 500 }, () => {
         socket.destroy();
         resolve(ip);
@@ -44,7 +47,8 @@ function checkPorts(container, { signal }) {
         return reject(ex);
       }
 
-      return checkPorts(container);
+      return timeout(500, undefined, { signal })
+        .then(() => checkPorts(container));
     }
   });
 }
@@ -72,7 +76,7 @@ async function main() {
 
   if (container.data.State !== 'running') {
     await container.start();
-    container = docker.container.get(container.id)
+    container = await docker.container.get(container.id).status()
   }
 
   const ip = await checkPorts(container, { signal: acShutdown.signal });
@@ -82,7 +86,8 @@ async function main() {
     env: {
       // DEBUG: 'peanar:broker',
       RABBITMQ_HOST: ip,
-      RABBITMQ_PORT: '5672'
+      RABBITMQ_PORT: '5672',
+      ...process.env
     }
   });
 }
