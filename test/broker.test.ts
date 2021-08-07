@@ -188,6 +188,26 @@ describe('Broker', () => {
       });
     });
 
+    it('can consume from a queue', async function() {
+      const consumer = await broker.consume('q1');
+      const { consumerCount } = await broker.pool!.acquireAndRun(async ch => {
+        return await ch.checkQueue('q1');
+      });
+
+      expect(consumerCount).to.be.eq(1);
+      await consumer.cancel();
+    });
+
+    it('can consume from multiple queues', async function() {
+      const consumers = await Promise.all(broker.consumeOver(['q1', 'q1', 'q1']));
+      const { consumerCount } = await broker.pool!.acquireAndRun(async ch => {
+        return await ch.checkQueue('q1');
+      });
+
+      expect(consumerCount).to.be.eq(3);
+      await Promise.all(consumers.map(c => c.consumer.cancel()));
+    });
+
     it('can publish multiple messages without overloading a channel', async function() {
       await broker.queues([{
         name: 'q2',
@@ -225,6 +245,17 @@ describe('Broker', () => {
   });
 
   describe('Error handling', function() {
+    describe('#consume()', function() {
+      it('throws when not connected', async function() {
+        const broker = new Broker(brokerOptions);
+        try {
+          await broker.consume('q1');
+          throw new Error('Expected an error but none was thrown.');
+        } catch (ex) {
+          return;
+        }
+      });
+    });
     describe('#shutdown()', function() {
       it('throws when not connected', async function() {
         const broker = new Broker(brokerOptions);

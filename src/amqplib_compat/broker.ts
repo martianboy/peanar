@@ -265,7 +265,7 @@ export default class NodeAmqpBroker {
     }
 
     const _doPublish = async (): Promise<boolean> => {
-      const { channel, release } = await _doAcquire()
+      const { channel, release } = await _doAcquire();
       debug(`publish to channel`);
 
       try {
