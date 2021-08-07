@@ -196,6 +196,8 @@ export default class NodeAmqpBroker {
         }
       });
 
+      debug(`rewriteConsumersOnChannel on consumer ${consumer.tag}`);
+
       consumer.tag = res.consumerTag;
       consumer.channel = newCh;
       consumer.resume();
@@ -214,6 +216,11 @@ export default class NodeAmqpBroker {
       }
     }).then((res: Replies.Consume) => {
       consumer = new Consumer(ch, res.consumerTag, queue);
+      consumer.once('cancel', ({ server }: { server: boolean }) => {
+        if (!server && this._channelConsumers.has(consumer!.channel)) {
+          this._channelConsumers.get(ch)!.delete(consumer!);
+        }
+      });
 
       if (!this._channelConsumers.has(ch)) {
         this._channelConsumers.set(ch, new Set([consumer]));
