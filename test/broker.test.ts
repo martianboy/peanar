@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { setTimeout as timeout } from 'timers/promises';
 
 import { expect } from 'chai';
 import amqplib, { Connection } from 'amqplib';
@@ -208,8 +209,16 @@ describe('Broker', () => {
       expect(returnedFalseYet).to.be.true;
 
       await broker.pool?.acquireAndRun(async ch => {
-        const { messageCount } = await ch.checkQueue('q2');
-        expect(messageCount).to.be.eq(2500);
+        let all_received = false;
+        for (let i = 0; i < 5; i++) {
+          const { messageCount } = await ch.checkQueue('q2');
+          if (messageCount === 2500) {
+            all_received = true;
+            break;
+          }
+          await timeout(5);
+        }
+        expect(all_received, 'not all messages were received after 5 trials').to.be.true;
         await ch.deleteQueue('q2');
       });
     });
