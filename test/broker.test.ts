@@ -6,6 +6,7 @@ import amqplib, { Connection } from 'amqplib';
 import { brokerOptions } from './config';
 import Broker from '../src/amqplib_compat/broker';
 import { createVhost, deleteVhost } from './rabbitmq-http/client';
+import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
 
 class TestBroker extends Broker {
   createConnection() {
@@ -99,7 +100,7 @@ describe('Broker', () => {
     const vhost = crypto.randomBytes(5).toString('hex');
 
     const broker = new Broker({
-      ...brokerOptions,
+      poolSize: 1,
       connection: {
         ...brokerOptions.connection!,
         vhost
@@ -149,12 +150,11 @@ describe('Broker', () => {
       await broker.pool!.acquireAndRun(ch => ch.checkExchange('e1'));
     });
 
-    it('can publish a message to an exchange', async function() {
+    async function publish(args: IMessage<unknown>) {
       const payload = { username: 'martianboy' };
       await broker.publish({
-        routing_key: '#',
-        exchange: 'e1',
-        body: payload
+        body: payload,
+        ...args
       });
 
       await broker.pool!.acquireAndRun(async ch => {
@@ -167,10 +167,50 @@ describe('Broker', () => {
 
         const delivery = await promise;
         await ch.cancel(consumer.consumerTag);
+        ch.ackAll();
 
-        if (!delivery) throw new Error();
+        if (!delivery) throw new Error('Empty delivery after publish!');
         const body = JSON.parse(delivery.content.toString('utf-8'));
         expect(body).to.include(payload);
+      });
+    }
+
+    it('can publish a message to an exchange', async function() {
+      await publish({
+        routing_key: '#',
+        exchange: 'e1',
+      });
+    });
+    it('can publish a message to the default exchange', async function() {
+      await publish({
+        routing_key: 'q1',
+      });
+    });
+
+    it('can publish multiple messages without overloading a channel', async function() {
+      await broker.queues([{
+        name: 'q2',
+        auto_delete: false,
+        durable: false,
+        exclusive: false
+      }]);
+
+      let returnedFalseYet = false;
+      for (let i = 0; i < 2500; i++) {
+        const ret = await broker.publish({
+          routing_key: 'q2',
+          body: { message: 'Hello, World!' }
+        });
+
+        returnedFalseYet ||= !ret;
+      }
+
+      expect(returnedFalseYet).to.be.true;
+
+      await broker.pool?.acquireAndRun(async ch => {
+        const { messageCount } = await ch.checkQueue('q2');
+        expect(messageCount).to.be.eq(2500);
+        await ch.deleteQueue('q2');
       });
     });
   });
