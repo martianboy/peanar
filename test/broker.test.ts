@@ -8,6 +8,7 @@ import { brokerOptions } from './config';
 import Broker from '../src/amqplib_compat/broker';
 import { createVhost, deleteVhost } from './rabbitmq-http/client';
 import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
+import { once } from 'events';
 
 class TestBroker extends Broker {
   createConnection() {
@@ -20,6 +21,10 @@ class TestBroker extends Broker {
 
   set connection(conn: Connection | undefined) {
     this.conn = conn;
+  }
+
+  get channelConsumers() {
+    return this._channelConsumers;
   }
 }
 
@@ -100,7 +105,7 @@ describe('Broker', () => {
   describe('Functionality', function() {
     const vhost = crypto.randomBytes(5).toString('hex');
 
-    const broker = new Broker({
+    const broker = new TestBroker({
       poolSize: 1,
       connection: {
         ...brokerOptions.connection!,
@@ -196,6 +201,30 @@ describe('Broker', () => {
 
       expect(consumerCount).to.be.eq(1);
       await consumer.cancel();
+
+      expect(broker.channelConsumers.size).to.eq(1);
+      expect([...broker.channelConsumers.values()][0].size).to.be.eq(0);
+    });
+
+    it('can rewire consumers to a new channel when one is lost', async function() {
+      const consumers = await Promise.all(broker.consumeOver(['q1', 'q1', 'q1']));
+      expect(consumers).to.have.length(3);
+
+      console.log(consumers.map(c => c.consumer.tag));
+
+      // cause a channel error
+      await broker.pool!.acquireAndRun(async ch => {
+        return ch.assertQueue('q1', { exclusive: true });
+      }).then(() => {
+        throw new Error('Expected assertQueue to fail!');
+      });
+
+      // Await the resume event on each consumer which is the signal that it is
+      // back on a new channel and receiving messages again.
+      await Promise.all(consumers.map(c => once(c.consumer, 'resume')));
+
+      // Cancel all consumers
+      await Promise.all(consumers.map(c => c.consumer.cancel()));
     });
 
     it('can consume from multiple queues', async function() {
@@ -208,7 +237,7 @@ describe('Broker', () => {
       await Promise.all(consumers.map(c => c.consumer.cancel()));
     });
 
-    it('can publish multiple messages without overloading a channel', async function() {
+    it.skip('can publish multiple messages without overloading a channel', async function() {
       await broker.queues([{
         name: 'q2',
         auto_delete: false,
