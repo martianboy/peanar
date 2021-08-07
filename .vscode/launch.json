@@ -5,6 +5,25 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "args": [
+        "--timeout",
+        "999999",
+        "--colors",
+        "${workspaceFolder}/test/broker.test.ts"
+      ],
+      "internalConsoleOptions": "openOnSessionStart",
+      "name": "Mocha Tests",
+      "program": "${workspaceFolder}/node_modules/mocha/bin/_mocha",
+      "request": "launch",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "env": {
+        "RABBITMQ_HOST": "172.17.0.2"
+      },
+      "type": "pwa-node"
+    },
+    {
       "name": "Start Rabbitmq",
       "program": "${workspaceFolder}/scripts/start-rabbitmq.js",
       "request": "launch",

@@ -3,7 +3,7 @@ import { IBrokerOptions } from '../src/amqplib_compat/broker';
 export const brokerOptions: IBrokerOptions = {
   connection: {
     host: process.env.RABBITMQ_HOST ?? '',
-    port: parseInt(process.env.RABBITMQ_PORT ?? ''),
+    port: parseInt(process.env.RABBITMQ_PORT ?? '5672'),
     username: 'guest',
     password: 'guest',
     vhost: '/',
