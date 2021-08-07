@@ -217,7 +217,7 @@ describe('Broker', () => {
         return ch.assertQueue('q1', { exclusive: true });
       }).then(() => {
         throw new Error('Expected assertQueue to fail!');
-      });
+      }, () => {});
 
       // Await the resume event on each consumer which is the signal that it is
       // back on a new channel and receiving messages again.
