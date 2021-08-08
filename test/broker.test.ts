@@ -206,6 +206,15 @@ describe('Broker', () => {
       expect([...broker.channelConsumers.values()][0].size).to.be.eq(0);
     });
 
+    it('doesn\'t rewire if no consumers are registered', async function() {
+      // cause a channel error
+      await broker.pool!.acquireAndRun(async ch => {
+        return ch.assertQueue('q1', { exclusive: true });
+      }).then(() => {
+        throw new Error('Expected assertQueue to fail!');
+      }, () => {});
+    });
+
     it('can rewire consumers to a new channel when one is lost', async function() {
       const consumers = await Promise.all(broker.consumeOver(['q1', 'q1', 'q1']));
       expect(consumers).to.have.length(3);
@@ -237,7 +246,7 @@ describe('Broker', () => {
       await Promise.all(consumers.map(c => c.consumer.cancel()));
     });
 
-    it.skip('can publish multiple messages without overloading a channel', async function() {
+    it('can publish multiple messages without overloading a channel', async function() {
       await broker.queues([{
         name: 'q2',
         auto_delete: false,
