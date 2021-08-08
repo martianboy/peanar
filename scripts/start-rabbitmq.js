@@ -84,7 +84,6 @@ async function main() {
   child_process.spawn('yarn', ['mocha', '--colors'], {
     stdio: 'inherit',
     env: {
-      // DEBUG: 'peanar:broker',
       RABBITMQ_HOST: ip,
       RABBITMQ_PORT: '5672',
       ...process.env
