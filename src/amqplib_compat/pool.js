@@ -1,8 +1,7 @@
 // @ts-nocheck
 
 const { EventEmitter } = require('events');
-const debugFn = require('debug');
-const debug = debugFn('peanar:pool');
+const debug = require('debug')('peanar:pool');
 
 class ChannelPool extends EventEmitter {
   _queue = [];
@@ -22,7 +21,6 @@ class ChannelPool extends EventEmitter {
     this._size = size;
     this.prefetch = prefetch;
 
-    // this._conn.once('closing', this.softCleanUp);
     this._conn.once('close', this.hardCleanUp);
     this._conn.once('error', this.softCleanUp);
   }
@@ -81,7 +79,6 @@ class ChannelPool extends EventEmitter {
   async close() {
     this.emit('closing');
 
-    // this._conn.off('closing', this.softCleanUp);
     this._conn.off('close', this.hardCleanUp);
 
     debug('ChannelPool: awaiting complete pool release');
@@ -141,14 +138,14 @@ class ChannelPool extends EventEmitter {
   }
 
   async onChannelClose(ch) {
-    // debug(`ChannelPool: channel ${ch.channelNumber} closed`);
+    debug(`ChannelPool: channel ${ch.channelNumber} closed`);
 
     this._acquisitions.delete(ch);
     this._releaseResolvers.delete(ch);
 
     const idx = this._pool.indexOf(ch);
     if (this._isOpen) {
-      // debug(`ChannelPool: replacing closed channel ${ch.channelNumber} with a new one`);
+      debug(`ChannelPool: replacing closed channel ${ch.channelNumber} with a new one`);
       let newCh = undefined
       try {
         newCh = await this.openChannel();
@@ -167,7 +164,6 @@ class ChannelPool extends EventEmitter {
   onChannelError(ch, err) {
     console.error(err);
     this.emit('channelLost', ch, err)
-    // this.emit('error', err, ch);
   }
 
   async openChannel() {
@@ -186,7 +182,6 @@ class ChannelPool extends EventEmitter {
    * @param {import('amqplib').Channel} ch
    */
   releaser(ch) {
-    // debug(`ChannelPool: channel ${ch.channelNumber} released`);
     this._pool.push(ch);
 
     if (this._releaseResolvers.has(ch)) {
@@ -209,8 +204,6 @@ class ChannelPool extends EventEmitter {
         channel: ch,
         release: this.releaser.bind(this, ch)
       });
-
-      // debug(`ChannelPool: channel ${ch.channelNumber} acquired`);
     }
   }
 }
