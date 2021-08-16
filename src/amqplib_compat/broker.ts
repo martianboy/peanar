@@ -28,6 +28,7 @@ export default class NodeAmqpBroker {
   protected _connectPromise?: Promise<Connection>;
 
   protected _channelConsumers = new Map<Channel, Set<Consumer>>();
+  protected _state: 'CLOSED' | 'CLOSING' | 'CONNECTING' | 'CONNECTED' = 'CLOSED';
 
   public pool?: ChannelPool;
 
@@ -35,9 +36,20 @@ export default class NodeAmqpBroker {
     this.config = config
   }
 
+  protected get state() {
+    return this._state;
+  }
+
+  protected set state(newState) {
+    debug(`state: ${newState}`);
+    this._state = newState;
+  }
+
   protected async _connectAmqp(maxRetries = 5, retry = 0): Promise<Connection> {
     debug(`_connectAmqp(${maxRetries}, ${retry})`);
     try {
+      this.state = 'CONNECTING';
+
       const c = this.config || {};
 
       const conn = (this.conn = await amqplib.connect({
@@ -48,8 +60,10 @@ export default class NodeAmqpBroker {
         vhost: c.connection?.vhost ?? '/'
       }));
 
-      return conn
+      this.state = 'CONNECTED';
+      return conn;
     } catch (ex) {
+      this.state = 'CLOSED';
       if (ex.code === 'ECONNREFUSED') {
         if (retry === maxRetries) {
           throw ex;
@@ -62,6 +76,40 @@ export default class NodeAmqpBroker {
         console.error(ex);
         throw ex;
       }
+    }
+  }
+
+  protected onPoolChannelLost = (ch: Channel) => {
+    this.pauseConsumersOnChannel(ch);
+  }
+
+  protected onPoolChannelReplaced = (ch: Channel, newCh: Channel) => {
+    this.rewireConsumersOnChannel(ch, newCh).catch(ex => {
+      console.error(ex);
+    });
+  }
+
+  protected onConnectionError = (ex: any) => {
+    debug(`AMQP connection error ${ex.code}!`);
+    debug(`Original error message: ${ex.message}`);
+  }
+
+  protected onConnectionClosed = (err?: any) => {
+    if (err) {
+      debug(err.message);
+    } else {
+      debug('AMQP connection closed.');
+    }
+
+    this.state = 'CLOSED';
+    this._connectPromise = undefined;
+
+    // If RabbitMQ has closed the connection for a protocol error, try to
+    // restore the connection.
+    if (err && err.code >= 300) {
+      // this.state will become CONNECTING in the current tick.
+      // It's important to make sure there will be no undefined state here.
+      this.connect();
     }
   }
 
@@ -88,35 +136,11 @@ export default class NodeAmqpBroker {
         await this.resurrectAllConsumers();
       }
 
-      this.pool.on('channelLost', (ch) => {
-        this.pauseConsumersOnChannel(ch);
-      });
-      this.pool.on('channelReplaced', (ch, newCh) => {
-        this.rewireConsumersOnChannel(ch, newCh).catch(ex => {
-          console.error(ex);
-        });
-      });
+      this.pool.on('channelLost', this.onPoolChannelLost);
+      this.pool.on('channelReplaced', this.onPoolChannelReplaced);
 
-      conn.on('error', ex => {
-        debug(`AMQP connection error ${ex.code}!`);
-        debug(`Original error message: ${ex.message}`);
-      });
-
-      conn.once('close', (err?: any) => {
-        if (err) {
-          debug(err.message);
-        } else {
-          debug('AMQP connection closed.');
-        }
-
-        this._connectPromise = undefined;
-
-        // If RabbitMQ has closed the connection for a protocol error, try to
-        // restore the connection.
-        if (err && err.code >= 300) {
-          this.connect();
-        }
-      });
+      conn.on('error', this.onConnectionError);
+      conn.once('close', this.onConnectionClosed);
 
       return conn;
     }
@@ -126,6 +150,7 @@ export default class NodeAmqpBroker {
 
   public async shutdown() {
     debug('shutdown()');
+    this.state = 'CLOSING';
 
     if (!this.conn) throw new PeanarAdapterError('Shutdown: Not connected!');
     if (!this.pool) throw new PeanarAdapterError('Shutdown: Strange! Channel pool has not been initialized!');

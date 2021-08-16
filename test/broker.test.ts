@@ -219,8 +219,6 @@ describe('Broker', () => {
       const consumers = await Promise.all(broker.consumeOver(['q1', 'q1', 'q1']));
       expect(consumers).to.have.length(3);
 
-      console.log(consumers.map(c => c.consumer.tag));
-
       // cause a channel error
       await broker.pool!.acquireAndRun(async ch => {
         return ch.assertQueue('q1', { exclusive: true });
