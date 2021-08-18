@@ -224,7 +224,7 @@ export default class PeanarWorker extends Transform {
 
       this.log(`Job ${job.name}:${job.id} FAILURE!`);
 
-      await job.reject();
+      await job.reject(ex);
       this.log(`Job ${job.name}:${job.id} was rejected.`);
     } finally {
       this.activeJob = undefined;
