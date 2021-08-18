@@ -113,7 +113,7 @@ export default class PeanarWorker extends Transform {
         this.log('Worker state: Closed');
         setImmediate(() => callback(err));
       }
-      this._destroy_timeout = setTimeout(this.destroy_cb, this._shutdown_timeout);
+      this._destroy_timeout = setTimeout(this.destroy_cb, this._shutdown_timeout, error);
     }
   }
 
