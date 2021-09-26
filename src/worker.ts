@@ -180,7 +180,9 @@ export default class PeanarWorker extends Transform {
       req.correlationId = delivery.properties.correlationId;
     }
 
-    return new this.app.jobClass(req, def, this.app, this._channel);
+    const jobClass = def.jobClass ?? this.app.jobClass;
+
+    return new jobClass(req, def, this.app, this._channel);
   }
 
   private async run(job: PeanarJob) {

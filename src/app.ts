@@ -21,8 +21,9 @@ export interface IPeanarJobDefinitionInput {
   replyTo?: string;
   handler: (...args: any[]) => Promise<any>;
 
-  expires?: number;
+  jobClass?: typeof PeanarJob;
 
+  expires?: number;
   retry_exchange?: string;
   error_exchange?: string;
   max_retries?: number;
@@ -39,8 +40,9 @@ export interface IPeanarJobDefinition {
   exchange?: string;
   replyTo?: string;
 
-  expires?: number;
+  jobClass?: typeof PeanarJob;
 
+  expires?: number;
   retry_exchange?: string;
   error_exchange?: string;
   max_retries?: number;
