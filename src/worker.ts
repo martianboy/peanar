@@ -66,6 +66,7 @@ export default class PeanarWorker extends Transform {
     this.n = counter++;
 
     this._channel = channel;
+    this._channel.setMaxListeners(0);
     this._channel.once('close', this.onChannelClosed);
   }
 
