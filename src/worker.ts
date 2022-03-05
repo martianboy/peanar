@@ -180,7 +180,9 @@ export default class PeanarWorker extends Transform {
       req.correlationId = delivery.properties.correlationId;
     }
 
-    return new this.app.jobClass(req, def, this.app, this._channel);
+    const jobClass = def.jobClass ?? this.app.jobClass;
+
+    return new jobClass(req, def, this.app, this._channel);
   }
 
   private async run(job: PeanarJob) {
@@ -224,7 +226,7 @@ export default class PeanarWorker extends Transform {
 
       this.log(`Job ${job.name}:${job.id} FAILURE!`);
 
-      await job.reject();
+      await job.reject(ex);
       this.log(`Job ${job.name}:${job.id} was rejected.`);
     } finally {
       this.activeJob = undefined;
