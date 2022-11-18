@@ -208,4 +208,6 @@ class ChannelPool extends EventEmitter {
   }
 }
 
-module.exports = ChannelPool;
+module.exports = {
+  ChannelPool
+};

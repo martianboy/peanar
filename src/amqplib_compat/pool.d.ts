@@ -6,7 +6,7 @@ interface ChannelWithReleaser {
     release: Releaser;
     channel: Channel;
 }
-export default class ChannelPool extends EventEmitter {
+export class ChannelPool extends EventEmitter {
     private _queue;
     private _pool;
     private _acquisitions;
@@ -38,4 +38,3 @@ export default class ChannelPool extends EventEmitter {
     on(event: 'channelReplaced', listener: (ch: Channel, newCh: Channel) => void): this;
     once(event: 'channelReplaced', listener: (ch: Channel, newCh: Channel) => void): this;
 }
-export {};

@@ -5,7 +5,7 @@ const debug = debugFn('peanar:broker');
 
 import amqplib, { Connection, ConsumeMessage, Replies, Channel } from 'amqplib';
 
-import ChannelPool from './pool';
+import { ChannelPool } from './pool';
 import { PeanarAdapterError } from '../exceptions';
 import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
 import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
@@ -64,7 +64,7 @@ export default class NodeAmqpBroker {
       return conn;
     } catch (ex) {
       this.state = 'CLOSED';
-      if (ex.code === 'ECONNREFUSED') {
+      if ((ex as any).code === 'ECONNREFUSED') {
         if (retry === maxRetries) {
           throw ex;
         }
@@ -235,27 +235,30 @@ export default class NodeAmqpBroker {
   private async _startConsumer(ch: Channel, queue: string): Promise<Consumer> {
     let consumer: Consumer | null;
 
-    return await ch.consume(queue, (msg: ConsumeMessage | null) => {
+    const res = await ch.consume(queue, (msg: ConsumeMessage | null) => {
       if (msg && consumer) {
         consumer.handleDelivery(msg);
       }
-    }).then((res: Replies.Consume) => {
-      consumer = new Consumer(ch, res.consumerTag, queue);
-      consumer.once('cancel', ({ server }: { server: boolean }) => {
-        if (!server && this._channelConsumers.has(consumer!.channel)) {
-          this._channelConsumers.get(ch)!.delete(consumer!);
-        }
-      });
+    })
 
-      if (!this._channelConsumers.has(ch)) {
-        this._channelConsumers.set(ch, new Set([consumer]));
-      } else {
-        const set = this._channelConsumers.get(ch);
-        set!.add(consumer);
+    consumer = new Consumer(ch, res.consumerTag, queue);
+    consumer.once('cancel', ({ server }: { server: boolean }) => {
+      if (server || !consumer) return;
+
+      const consumers = this._channelConsumers.get(ch)
+      if (consumers) {
+        consumers.delete(consumer);
       }
+    });
 
-      return consumer;
-    }, ex => Promise.reject(ex));
+    const consumers = this._channelConsumers.get(ch);
+    if (consumers) {
+      consumers.add(consumer);
+    } else {
+      this._channelConsumers.set(ch, new Set([consumer]));
+    }
+
+    return consumer;
   }
 
   public consume(queue: string): PromiseLike<Consumer> {
@@ -318,7 +321,7 @@ export default class NodeAmqpBroker {
           return false;
         }
       } catch (ex) {
-        if (ex.message === 'Channel closed') {
+        if ((ex as Error).message === 'Channel closed') {
           return _doPublish();
         }
 
