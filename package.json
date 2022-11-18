@@ -4,7 +4,7 @@
   "description": "A job queue for Node.js based on RabbitMQ",
   "main": "dist/index.js",
   "scripts": {
-    "test": "yarn node ./scripts/start-rabbitmq.js",
+    "test": "RABBITMQ_HOST=rabbitmq RABBITMQ_PORT=5672 yarn mocha --colors",
     "build": "yarn tsc -p tsconfig.build.json && cp src/amqplib_compat/pool* dist/amqplib_compat/",
     "prepublishOnly": "yarn build"
   },

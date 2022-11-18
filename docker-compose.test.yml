@@ -1,0 +1,17 @@
+version: '2'
+services:
+  test:
+    image: node:latest
+    working_dir: /app
+    volumes:
+      - .:/app
+    command:
+      sh -c "node /app/test/bin/wait-for-rabbit.js && yarn mocha --colors"
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      DEBUG: docker
+    links:
+      - rabbitmq
+  rabbitmq:
+    image: rabbitmq:management
