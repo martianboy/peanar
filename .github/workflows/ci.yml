@@ -33,7 +33,7 @@ jobs:
           cache: 'yarn'
 
       - name: Install dependencies
-        run: sudo apt-get install git-core && yarn
+        run: git status && yarn
 
       - name: Run the test suite
         run: yarn nyc mocha
