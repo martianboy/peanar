@@ -10,8 +10,8 @@ import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Writable, TransformCallback } from 'stream';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import Registry from './registry';
-import { IConsumer } from 'ts-amqp/dist/interfaces/Consumer';
 import PeanarTransactor from './transact';
+import Consumer from './amqplib_compat/consumer';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -98,7 +98,7 @@ export default class PeanarApp {
   public broker: Broker;
   public jobClass: typeof PeanarJob;
 
-  protected consumers: Map<string, IConsumer<any>[]> = new Map;
+  protected consumers: Map<string, Consumer[]> = new Map;
   protected workers: Map<string, Worker[]> = new Map;
   protected jobs: Map<string, (...args: unknown[]) => Promise<unknown>> = new Map;
   protected transactions: Set<PeanarTransactor> = new Set();
@@ -153,7 +153,7 @@ export default class PeanarApp {
     this.workers.set(queue, workers);
   }
 
-  protected _registerConsumer(queue: string, consumer: IConsumer<any>) {
+  protected _registerConsumer(queue: string, consumer: Consumer) {
     const consumers = this.consumers.get(queue) || [];
     consumers.push(consumer);
     this.consumers.set(queue, consumers);
@@ -282,7 +282,7 @@ export default class PeanarApp {
     for (const c of consumers) c.resume();
   }
 
-  protected async _startWorker(queue: string, consumer: IConsumer<any>) {
+  protected async _startWorker(queue: string, consumer: Consumer) {
     const worker = new Worker(this, consumer.channel, queue);
 
     consumer.on('channelChanged', ch => {
@@ -313,12 +313,16 @@ export default class PeanarApp {
       ? queues
       : this.registry.workerQueues;
 
-    const queues_to_start = [...worker_queues].flatMap(q => Array(concurrency).fill(q));
+    const queues_to_start = [...worker_queues].flatMap((q) =>
+      Array(concurrency).fill(q)
+    );
 
-    return Promise.all(this.broker.consumeOver(queues_to_start).map(async p => {
-      const { queue, consumer } = await p;
+    return Promise.all(
+      this.broker.consumeOver(queues_to_start, prefetch).map(async (p) => {
+        const { queue, consumer } = await p;
 
-      return this._startWorker(queue, consumer);
-    }));
+        return this._startWorker(queue, consumer);
+      })
+    );
   }
 }

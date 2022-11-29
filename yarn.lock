@@ -484,6 +484,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/lodash@npm:^4.14.190":
+  version: 4.14.190
+  resolution: "@types/lodash@npm:4.14.190"
+  checksum: 353a55a1222a57224ead8bd3379fabb2e3e3f6685f599c48b1b66f099d8e9e015e6c6352c6e2275954004c3bb510377804c63117233c6f187700b6ab78adfa02
+  languageName: node
+  linkType: hard
+
 "@types/mocha@npm:^10.0.1":
   version: 10.0.1
   resolution: "@types/mocha@npm:10.0.1"
@@ -2793,6 +2800,7 @@ fsevents@~2.3.2:
     "@types/chai": ^4.3.4
     "@types/colors": ^1.2.1
     "@types/debug": ^4.1.7
+    "@types/lodash": ^4.14.190
     "@types/mocha": ^10.0.1
     "@types/node": ^18.11.9
     "@types/node-fetch": ^2.6.2
@@ -2802,6 +2810,7 @@ fsevents@~2.3.2:
     colors: ^1.4.0
     debug: ^4.3.4
     eslint: ^8.28.0
+    lodash: ^4.17.21
     mocha: ^10.1.0
     node-docker-api: ^1.1.22
     node-fetch: 2

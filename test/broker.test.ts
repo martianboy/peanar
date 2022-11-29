@@ -1,5 +1,7 @@
+import * as _ from 'lodash';
 import crypto from 'crypto';
 import { setTimeout as timeout } from 'timers/promises';
+import { Writable } from 'node:stream';
 
 import { expect } from 'chai';
 import amqplib, { Connection } from 'amqplib';
@@ -242,6 +244,105 @@ describe('Broker', () => {
 
       expect(consumerCount).to.be.eq(3);
       await Promise.all(consumers.map(c => c.consumer.cancel()));
+    });
+
+    it('can consume multiple messages on a consumer with prefetch', async function() {
+      await broker.queues([{
+        name: 'q5',
+        auto_delete: false,
+        durable: false,
+        exclusive: false
+      }]);
+
+      const pub = (body: object) => broker.publish({
+        routing_key: 'q5',
+        body
+      });
+
+      const messages = [
+        { username: 'u1' },
+        { username: 'u2' },
+        { username: 'u3' },
+      ];
+
+      await Promise.all(messages.map(pub));
+
+      const consumer = await broker.consume('q5', 5);
+
+      return new Promise((done) => {
+        let consumed = 0;
+        consumer.pipe(new Writable({
+          write(_chunk, _encoding, cb) {
+            consumed += 1;
+            if (consumed === 3) {
+              consumer.cancel().then(() =>
+                broker.pool!.acquireAndRun(ch => ch.deleteQueue('q5'))
+              ).then(() => done());
+            }
+            cb();
+          },
+          objectMode: true
+        }));
+      });
+    });
+
+    it('can safely reset prefetch on the same channel', async function () {
+      await broker.queues([
+        {
+          name: 'q5',
+          auto_delete: false,
+          durable: false,
+          exclusive: false,
+        },
+      ]);
+
+      const pub = (body: object) =>
+        broker.publish({
+          routing_key: 'q5',
+          body,
+        });
+
+      const messages = [
+        { username: 'u1' },
+        { username: 'u2' },
+        { username: 'u3' },
+        { username: 'u4' },
+        { username: 'u5' },
+      ];
+
+      await Promise.all(messages.map(pub));
+
+      const consumer1 = await broker.consume('q5', 2);
+      const consumer2 = await broker.consume('q5', 1);
+      const consumer3 = await broker.consume('q5', 2);
+
+      const consumed_counts = await Promise.all(
+        [consumer1, consumer2, consumer3].map(
+          (consumer) =>
+            new Promise((_done) => {
+              let consumed = 0;
+              const done = _.debounce(() => _done(consumed), 100, {
+                leading: false,
+                trailing: true,
+              });
+
+              consumer.pipe(
+                new Writable({
+                  write(_chunk, _encoding, cb) {
+                    consumed += 1;
+                    done();
+                    cb();
+                  },
+                  objectMode: true,
+                })
+              );
+            })
+        )
+      );
+
+      broker.pool!.acquireAndRun(ch => ch.deleteQueue('q5'));
+
+      expect(consumed_counts).to.have.members([2, 1, 2]);
     });
 
     it('can publish multiple messages without overloading a channel', async function() {
