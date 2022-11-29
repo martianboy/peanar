@@ -33,6 +33,7 @@ jobs:
           cache: 'yarn'
 
       - name: Install dependencies
+        run: apt install git
         run: yarn
 
       - name: Run the test suite
