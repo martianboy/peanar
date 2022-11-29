@@ -33,8 +33,7 @@ jobs:
           cache: 'yarn'
 
       - name: Install dependencies
-        run: apt install git
-        run: yarn
+        run: apt install git && yarn
 
       - name: Run the test suite
         run: yarn nyc mocha
