@@ -33,7 +33,7 @@ jobs:
           cache: 'yarn'
 
       - name: Install dependencies
-        run: git status && yarn
+        run: yarn
 
       - name: Run the test suite
         run: yarn nyc mocha
