@@ -3,7 +3,7 @@ import { setTimeout as timeout } from 'timers/promises';
 import debugFn from 'debug';
 const debug = debugFn('peanar:broker');
 
-import amqplib, { Connection, ConsumeMessage, Replies, Channel } from 'amqplib';
+import amqplib, { Connection, ConsumeMessage, Channel } from 'amqplib';
 
 import { ChannelPool } from './pool';
 import { PeanarAdapterError } from '../exceptions';
@@ -19,6 +19,8 @@ export interface IBrokerOptions {
   prefetch?: number;
 }
 
+export type TBrokerState = 'CLOSED' | 'CLOSING' | 'CONNECTING' | 'CONNECTED';
+
 /**
  * Peanar's broker adapter
  */
@@ -28,7 +30,8 @@ export default class NodeAmqpBroker {
   protected _connectPromise?: Promise<Connection>;
 
   protected _channelConsumers = new Map<Channel, Set<Consumer>>();
-  protected _state: 'CLOSED' | 'CLOSING' | 'CONNECTING' | 'CONNECTED' = 'CLOSED';
+  protected _channelPrefetch = new WeakMap<Channel, number>();
+  protected _state: TBrokerState = 'CLOSED';
 
   public pool?: ChannelPool;
 
@@ -198,7 +201,11 @@ export default class NodeAmqpBroker {
   }
 
   private async resurrectAllConsumers() {
-    await Promise.all(this.pool!.mapOver([...this._channelConsumers.keys()], (newCh, oldCh) => this.rewireConsumersOnChannel(oldCh, newCh)))
+    await Promise.all(
+      this.pool!.mapOver([...this._channelConsumers.keys()], (newCh, oldCh) =>
+        this.rewireConsumersOnChannel(oldCh, newCh)
+      )
+    );
   }
 
   private pauseConsumersOnChannel(ch: Channel) {
@@ -210,11 +217,23 @@ export default class NodeAmqpBroker {
     }
   }
 
+  private async _ensurePrefetch(ch: Channel, prefetch: number) {
+    debug(`broker._ensurePrefetch(ch, ${prefetch})`);
+
+    const currentPrefetch = this._channelPrefetch.get(ch) ?? 1;
+    if (currentPrefetch !== prefetch) {
+      await ch.prefetch(prefetch);
+      this._channelPrefetch.set(ch, prefetch);
+    }
+  }
+
   private async rewireConsumersOnChannel(ch: Channel, newCh: Channel) {
     const set = this._channelConsumers.get(ch);
     if (!set || set.size < 1) return;
 
     for (const consumer of set) {
+      await this._ensurePrefetch(newCh, consumer.prefetch);
+
       const res = await newCh.consume(consumer.queue, (msg: ConsumeMessage | null) => {
         if (msg && consumer) {
           consumer.handleDelivery(msg);
@@ -232,20 +251,16 @@ export default class NodeAmqpBroker {
     this._channelConsumers.set(ch, set);
   }
 
-  private async _startConsumer(ch: Channel, queue: string): Promise<Consumer> {
-    let consumer: Consumer | null;
+  private async _startConsumer(ch: Channel, queue: string, prefetch = 1): Promise<Consumer> {
+    const consumer: Consumer = new Consumer(ch, queue, prefetch);
 
-    const res = await ch.consume(queue, (msg: ConsumeMessage | null) => {
-      if (msg && consumer) {
-        consumer.handleDelivery(msg);
-      }
-    })
+    await this._ensurePrefetch(ch, prefetch);
+    await consumer.start();
 
-    consumer = new Consumer(ch, res.consumerTag, queue);
     consumer.once('cancel', ({ server }: { server: boolean }) => {
-      if (server || !consumer) return;
+      if (server) return;
 
-      const consumers = this._channelConsumers.get(ch)
+      const consumers = this._channelConsumers.get(ch);
       if (consumers) {
         consumers.delete(consumer);
       }
@@ -261,19 +276,19 @@ export default class NodeAmqpBroker {
     return consumer;
   }
 
-  public consume(queue: string): PromiseLike<Consumer> {
+  public consume(queue: string, prefetch = 1): PromiseLike<Consumer> {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    return this.pool.acquireAndRun(async ch => this._startConsumer(ch, queue));
+    return this.pool.acquireAndRun(async ch => this._startConsumer(ch, queue, prefetch));
   }
 
-  public consumeOver(queues: string[]) {
+  public consumeOver(queues: string[], prefetch = 1) {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return this.pool.mapOver(queues, async (ch, queue) => {
       return {
         queue,
-        consumer: await this._startConsumer(ch, queue)
+        consumer: await this._startConsumer(ch, queue, prefetch)
       };
     });
   }
@@ -301,7 +316,6 @@ export default class NodeAmqpBroker {
 
     const _doPublish = async (): Promise<boolean> => {
       const { channel, release } = await _doAcquire();
-      debug(`publish to channel`);
 
       try {
         if (channel.publish(

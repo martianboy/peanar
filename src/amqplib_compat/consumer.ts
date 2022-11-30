@@ -1,21 +1,35 @@
 import { Readable } from 'stream';
 import { Channel, ConsumeMessage } from 'amqplib';
-import { IConsumer } from 'ts-amqp/dist/interfaces/Consumer';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
+import { PeanarAdapterError } from '../exceptions';
 
-export default class Consumer extends Readable implements IConsumer<Channel> {
-  public tag: string;
+export default class Consumer extends Readable {
+  public tag: string | null = null;
   public queue: string;
+  public prefetch: number;
   private _channel: Channel;
 
-  public constructor(channel: Channel, consumer_tag: string, queue: string) {
+  public constructor(channel: Channel, queue: string, prefetch = 1) {
     super({
       objectMode: true
     });
 
-    this.tag = consumer_tag;
     this._channel = channel;
     this.queue = queue;
+    this.prefetch = prefetch;
+  }
+
+  async start() {
+    const res = await this._channel.consume(
+      this.queue,
+      (msg: ConsumeMessage | null) => {
+        if (msg) {
+          this.handleDelivery(msg);
+        }
+      }
+    );
+
+    this.tag = res.consumerTag;
   }
 
   public get channel() {
@@ -28,6 +42,10 @@ export default class Consumer extends Readable implements IConsumer<Channel> {
   }
 
   public async cancel() {
+    if (!this.tag) {
+      throw new PeanarAdapterError('Cannot cancel a consumer without tag.');
+    }
+
     await this.channel.cancel(this.tag);
     this.removeAllListeners('channelChanged');
     this.handleCancel(false);
@@ -60,4 +78,15 @@ export default class Consumer extends Readable implements IConsumer<Channel> {
   }
 
   _read() {}
+}
+
+export async function createConsumer(
+  channel: Channel,
+  queue: string,
+  prefetch = 1
+): Promise<Consumer> {
+  const consumer = new Consumer(channel, queue, prefetch);
+  await consumer.start();
+
+  return consumer;
 }

@@ -207,7 +207,7 @@ export default class PeanarWorker extends Transform {
       this.log(`_to_ack.delete(${job.id});`);
 
       this.log(`Job ${job.name}:${job.id} was acked.`);
-    } catch (ex) {
+    } catch (ex: any) {
       if (ex instanceof PeanarJobCancelledError || job.cancelled) {
         this.log(`job ${job.id} was cancelled.`);
         return;
@@ -259,7 +259,7 @@ export default class PeanarWorker extends Transform {
       let job = undefined;
       try {
         job = this._getJob(delivery);
-      } catch (ex) {
+      } catch (ex: any) {
         // @ts-ignore
         this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
         return done(ex);

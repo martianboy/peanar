@@ -484,6 +484,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/lodash@npm:^4.14.190":
+  version: 4.14.190
+  resolution: "@types/lodash@npm:4.14.190"
+  checksum: 353a55a1222a57224ead8bd3379fabb2e3e3f6685f599c48b1b66f099d8e9e015e6c6352c6e2275954004c3bb510377804c63117233c6f187700b6ab78adfa02
+  languageName: node
+  linkType: hard
+
 "@types/mocha@npm:^10.0.1":
   version: 10.0.1
   resolution: "@types/mocha@npm:10.0.1"
@@ -515,10 +522,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/node@npm:^17.0.21":
-  version: 17.0.21
-  resolution: "@types/node@npm:17.0.21"
-  checksum: 89dcd2fe82f21d3634266f8384e9c865cf8af49685639fbdbd799bdd1040480fb1e8eeda2d3b9fce41edbe704d2a4be9f427118c4ae872e8d9bb7cbeb3c41a94
+"@types/node@npm:^18.11.9":
+  version: 18.11.9
+  resolution: "@types/node@npm:18.11.9"
+  checksum: cc0aae109e9b7adefc32eecb838d6fad931663bb06484b5e9cbbbf74865c721b03d16fd8d74ad90e31dbe093d956a7c2c306ba5429ba0c00f3f7505103d7a496
   languageName: node
   linkType: hard
 
@@ -2793,8 +2800,9 @@ fsevents@~2.3.2:
     "@types/chai": ^4.3.4
     "@types/colors": ^1.2.1
     "@types/debug": ^4.1.7
+    "@types/lodash": ^4.14.190
     "@types/mocha": ^10.0.1
-    "@types/node": ^17.0.21
+    "@types/node": ^18.11.9
     "@types/node-fetch": ^2.6.2
     "@types/uuid": ^9.0.0
     amqplib: ^0.10.3
@@ -2802,6 +2810,7 @@ fsevents@~2.3.2:
     colors: ^1.4.0
     debug: ^4.3.4
     eslint: ^8.28.0
+    lodash: ^4.17.21
     mocha: ^10.1.0
     node-docker-api: ^1.1.22
     node-fetch: 2
