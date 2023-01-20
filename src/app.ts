@@ -48,6 +48,7 @@ export interface IPeanarJobDefinition {
   max_retries?: number;
   retry_delay?: number;
   delayed_run_wait?: number;
+  timeout?: number;
 }
 
 export interface IPeanarRequest {

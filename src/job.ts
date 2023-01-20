@@ -189,6 +189,42 @@ export default class PeanarJob extends EventEmitter {
     return this.handler.apply(this, this.args.concat({ signal: this.controller.signal }))
   }
 
+  _rpcReject(ex: unknown) {
+    if (this.def.replyTo) {
+      this.app.broker.publish({
+        routing_key: this.def.replyTo,
+        exchange: '',
+        properties: {
+          correlationId: this.correlationId || this.id
+        },
+        body:  {
+          id: this.id,
+          name: this.name,
+          status: 'FAILURE',
+          error: ex
+        }
+      });
+    }
+  }
+
+  _rpcResolve(result: unknown) {
+    if (this.def.replyTo) {
+      this.app.broker.publish({
+        routing_key: this.def.replyTo,
+        exchange: '',
+        properties: {
+          correlationId: this.correlationId || this.id
+        },
+        body:  {
+          id: this.id,
+          name: this.name,
+          status: 'SUCCESS',
+          result
+        }
+      });
+    }
+  }
+
   perform() {
     let already_finished = false;
 
@@ -197,24 +233,9 @@ export default class PeanarJob extends EventEmitter {
         if (!already_finished) {
           already_finished = true;
 
-          if (this.def.replyTo) {
-            this.app.broker.publish({
-              routing_key: this.def.replyTo,
-              exchange: '',
-              properties: {
-                correlationId: this.correlationId || this.id
-              },
-              body:  {
-                id: this.id,
-                name: this.name,
-                status: 'SUCCESS',
-                result
-              }
-            });
-          }
+          this._rpcResolve(result);
 
           debug(`PeanarJob#${this.id}: (callResolve) not finished. all good. resolving...`);
-          // prevent memory leak
           this.controller.signal.removeEventListener('abort', onCancelled);
           resolve(result);
         }
@@ -224,21 +245,7 @@ export default class PeanarJob extends EventEmitter {
         if (!already_finished) {
           already_finished = true;
 
-          if (this.def.replyTo) {
-            this.app.broker.publish({
-              routing_key: this.def.replyTo,
-              exchange: '',
-              properties: {
-                correlationId: this.correlationId || this.id
-              },
-              body:  {
-                id: this.id,
-                name: this.name,
-                status: 'SUCCESS',
-                error: ex
-              }
-            });
-          }
+          this._rpcReject(ex);
 
           debug(`PeanarJob#${this.id}: (callReject) not finished. rejecting.`);
           reject(ex);
@@ -251,7 +258,15 @@ export default class PeanarJob extends EventEmitter {
         callReject(new PeanarJobCancelledError());
       }
 
-      this._perform().then(callResolve, callReject);
+      let timeout: NodeJS.Timeout | undefined
+      function timeoutDone() {
+        clearTimeout(timeout);
+      }
+
+      if (this.def.timeout) {
+        timeout = setTimeout(() => this.cancel(), this.def.timeout);
+      }
+      this._perform().then(callResolve, callReject).finally(timeoutDone);
       this.controller.signal.addEventListener('abort', onCancelled, { once: true });
     });
   }
