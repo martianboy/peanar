@@ -83,6 +83,7 @@ interface IWorkerOptions {
   queues?: string[];
   concurrency?: number;
   prefetch?: number;
+  outputWritable?: Writable;
 }
 
 export enum EAppState {
@@ -314,7 +315,7 @@ export default class PeanarApp {
     for (const c of consumers) c.resume();
   }
 
-  protected async _startWorker(queue: string, consumer: IConsumer<any>) {
+  protected async _startWorker(queue: string, consumer: IConsumer<any>, outputWritable?: Writable) {
     const worker = new Worker(this, consumer.channel, queue);
 
     consumer.on('channelChanged', ch => {
@@ -326,7 +327,7 @@ export default class PeanarApp {
 
     return consumer
       .pipe(worker)
-      .pipe(new Writable({
+      .pipe(outputWritable ?? new Writable({
         objectMode: true,
         write: (result: IWorkerResult, _encoding: string, cb: TransformCallback) => {
           if (result.status === 'FAILURE') {
@@ -355,7 +356,7 @@ export default class PeanarApp {
     return Promise.all(this.broker.consumeOver(queues_to_start).map(async p => {
       const { queue, consumer } = await p;
 
-      return this._startWorker(queue, consumer);
+      return this._startWorker(queue, consumer, options.outputWritable);
     }));
   }
 }
