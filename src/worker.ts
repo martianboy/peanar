@@ -31,6 +31,10 @@ export interface IDeathInfo {
   'routing-keys': string[]
 }
 
+interface WorkerOptions {
+  logger?: (msg: string) => void;
+}
+
 enum EWorkerState {
   IDLE = 'IDLE',
   WORKING = 'WORKING',
@@ -55,8 +59,9 @@ export default class PeanarWorker extends Transform {
   private _destroy_timeout?: NodeJS.Timeout;
   private _shutdown_timeout: number = SHUTDOWN_TIMEOUT;
   private _channel_lost: boolean = false;
+  public logger: (message?: any, ...optionalParams: any[]) => void;
 
-  constructor(app: PeanarApp, channel: Channel, queue: string) {
+  constructor(app: PeanarApp, channel: Channel, queue: string, options?: WorkerOptions) {
     super({
       objectMode: true
     });
@@ -67,6 +72,9 @@ export default class PeanarWorker extends Transform {
 
     this._channel = channel;
     this._channel.once('close', this.onChannelClosed);
+    this.logger = options?.logger ?? ((msg: string) => {
+      debug(`${`PeanarWorker#${this.n}:`.bold} ${msg}`);
+    });
   }
 
   get channel() { return this._channel; }
@@ -118,7 +126,7 @@ export default class PeanarWorker extends Transform {
   }
 
   public log(msg: string) {
-    return debug(`${`PeanarWorker#${this.n}:`.bold} ${msg}`);
+    return this.logger(`${`PeanarWorker#${this.n}:`.bold} ${msg}`);
   }
 
   getJobDefinition(name: string) {
@@ -207,7 +215,7 @@ export default class PeanarWorker extends Transform {
       this.log(`_to_ack.delete(${job.id});`);
 
       this.log(`Job ${job.name}:${job.id} was acked.`);
-    } catch (ex) {
+    } catch (ex: any) {
       if (ex instanceof PeanarJobCancelledError) {
         this.log(`job ${job.id} was cancelled.`);
         return;
@@ -259,7 +267,7 @@ export default class PeanarWorker extends Transform {
       let job = undefined;
       try {
         job = this._getJob(delivery);
-      } catch (ex) {
+      } catch (ex: any) {
         // @ts-ignore
         this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
         return done(ex);
