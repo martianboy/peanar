@@ -3,7 +3,7 @@ const debug = debugFn('peanar:broker');
 
 import amqplib, { Connection, ConsumeMessage, Replies, Channel } from 'amqplib';
 
-import ChannelPool from './pool';
+import { ChannelPool } from './pool';
 import { PeanarAdapterError } from '../exceptions';
 import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
 import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
@@ -53,7 +53,7 @@ export default class NodeAmqpBroker {
       }));
 
       return conn
-    } catch (ex) {
+    } catch (ex: any) {
       if (ex.code === 'ECONNREFUSED') {
         await timeout(700 * retry);
         return this._connectAmqp(retry + 1);
@@ -248,7 +248,7 @@ export default class NodeAmqpBroker {
 
       try {
         return await this.pool.acquire();
-      } catch (ex) {
+      } catch (ex: any) {
         await this.connect();
         return _doAcquire();
       }
@@ -275,7 +275,7 @@ export default class NodeAmqpBroker {
           channel.once('drain', release);
           return false;
         }
-      } catch (ex) {
+      } catch (ex: any) {
         if (ex.message === 'Channel closed') {
           return _doPublish();
         }
