@@ -65,6 +65,13 @@ export default class PeanarJob extends EventEmitter {
     }
   }
 
+  protected canRetry() {
+    return (
+      typeof this.def.retry_exchange === 'string' &&
+      (this.max_retries < 0 || this.attempt <= this.max_retries)
+    );
+  }
+
   async reject(ex?: Error & { retry?: boolean; }) {
     if (!this.channel)
       throw new PeanarAdapterError("Worker: AMQP connection lost!");
@@ -72,7 +79,7 @@ export default class PeanarJob extends EventEmitter {
     if (!this.deliveryTag)
       throw new PeanarJobError("Worker: No deliveryTag set!");
 
-    if (ex?.retry !== false && (this.max_retries < 0 || this.attempt <= this.max_retries)) {
+    if (ex?.retry !== false && this.canRetry()) {
       debug(`PeanarJob#${this.id}: Trying again...`);
       await this._declareRetryQueues();
 
