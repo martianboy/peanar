@@ -173,7 +173,7 @@ class PeanarTransactor extends EventEmitter {
       this.committed = true;
       this.emit('commit');
       this.emit('conclude', 'commit');
-    } catch(ex) {
+    } catch(ex: any) {
       if (ex.message === 'Channel closed' || ex.name === 'IllegalOperationError') {
         this.app.log(`Channel closed while committing the transaction ${this.queue_name}. Retrying...`);
         return this.commit();
@@ -199,7 +199,7 @@ class PeanarTransactor extends EventEmitter {
       this.rolledback = true;
       this.emit('rollback');
       this.emit('conclude', 'rollback');
-    } catch (ex) {
+    } catch (ex: any) {
       if (ex.message === 'Channel closed' || ex.name === 'IllegalOperationError') {
         this.app.log(`Channel closed while rolling back the transaction ${this.queue_name}. Retrying...`);
         return this.rollback();
