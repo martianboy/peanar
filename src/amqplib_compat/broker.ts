@@ -119,12 +119,18 @@ export default class NodeAmqpBroker {
   public async shutdown() {
     debug('shutdown()');
 
-    if (!this.pool) throw new PeanarAdapterError('Shutdown: Strange! Channel pool has not been initialized!');
-    if (!this.conn) throw new PeanarAdapterError('Shutdown: Not connected!');
+    if (this.pool) {
+      await this.pool.close();
+      this.pool = undefined;
+      debug('pool closed.');
+    }
 
-    await this.pool.close();
-    this.conn.off('close', this.connect);
-    await this.conn.close();
+    if (this.conn) {
+      this.conn.off('close', this.connect);
+      await this.conn.close();
+      this.conn = undefined;
+      debug('connection closed.');
+    }
   }
 
   public async queues(queues: IQueue[]) {
