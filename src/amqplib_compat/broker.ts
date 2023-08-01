@@ -202,14 +202,14 @@ export default class NodeAmqpBroker {
   }
 
   private async _startConsumer(ch: Channel, queue: string): Promise<Consumer> {
-    let consumer: Consumer | null;
+    let consumer = new Consumer(ch, queue);
 
     return await ch.consume(queue, (msg: ConsumeMessage | null) => {
-      if (msg && consumer) {
+      if (msg) {
         consumer.handleDelivery(msg);
       }
     }).then((res: Replies.Consume) => {
-      consumer = new Consumer(ch, res.consumerTag, queue);
+      consumer.tag = res.consumerTag;
 
       if (!this._channelConsumers.has(ch)) {
         this._channelConsumers.set(ch, new Set([consumer]));

@@ -4,16 +4,15 @@ import { IConsumer } from 'ts-amqp/dist/interfaces/Consumer';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 
 export default class Consumer extends Readable implements IConsumer<Channel> {
-  public tag: string;
+  public tag?: string;
   public queue: string;
   private _channel: Channel;
 
-  public constructor(channel: Channel, consumer_tag: string, queue: string) {
+  public constructor(channel: Channel, queue: string) {
     super({
       objectMode: true
     });
 
-    this.tag = consumer_tag;
     this._channel = channel;
     this.queue = queue;
   }
@@ -28,6 +27,10 @@ export default class Consumer extends Readable implements IConsumer<Channel> {
   }
 
   public async cancel() {
+    if (!this.tag) {
+      throw new Error('Consumer is not yet started or the consumer tag is not yet set!');
+    }
+
     await this.channel.cancel(this.tag);
     this.removeAllListeners('channelChanged');
     this.handleCancel(false);
