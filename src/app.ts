@@ -10,8 +10,8 @@ import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Writable, TransformCallback } from 'stream';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import Registry from './registry';
-import { IConsumer } from 'ts-amqp/dist/interfaces/Consumer';
 import PeanarTransactor from './transact';
+import Consumer from './amqplib_compat/consumer';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -29,6 +29,9 @@ export interface IPeanarJobDefinitionInput {
   max_retries?: number;
   retry_delay?: number;
   delayed_run_wait?: number;
+
+  max_priority?: number;
+  default_priority?: number;
 }
 
 export interface IPeanarJobDefinition {
@@ -48,6 +51,9 @@ export interface IPeanarJobDefinition {
   max_retries?: number;
   retry_delay?: number;
   delayed_run_wait?: number;
+
+  max_priority?: number;
+  default_priority?: number;
 }
 
 export interface IPeanarRequest {
@@ -57,6 +63,7 @@ export interface IPeanarRequest {
   attempt: number;
   correlationId?: string;
   deliveryTag?: bigint;
+  priority?: number;
 }
 
 export interface IPeanarJob extends IPeanarJobDefinition, IPeanarRequest {
@@ -100,7 +107,7 @@ export default class PeanarApp {
   public broker: Broker;
   public jobClass: typeof PeanarJob;
 
-  protected consumers: Map<string, IConsumer<any>[]> = new Map;
+  protected consumers: Map<string, Consumer[]> = new Map;
   protected workers: Map<string, Worker[]> = new Map;
   protected jobs: Map<string, (...args: unknown[]) => Promise<unknown>> = new Map;
   protected transactions: Set<PeanarTransactor> = new Set();
@@ -155,7 +162,7 @@ export default class PeanarApp {
     this.workers.set(queue, workers);
   }
 
-  protected _registerConsumer(queue: string, consumer: IConsumer<any>) {
+  protected _registerConsumer(queue: string, consumer: Consumer) {
     const consumers = this.consumers.get(queue) || [];
     consumers.push(consumer);
     this.consumers.set(queue, consumers);
@@ -188,6 +195,14 @@ export default class PeanarApp {
 
     if (typeof def.expires === 'number') {
       properties.expiration = def.expires.toString();
+    }
+
+    if (typeof def.max_priority === 'number') {
+      if (typeof req.priority === 'number' && req.priority <= def.max_priority) {
+        properties.priority = req.priority;
+      } else if (typeof def.default_priority === 'number') {
+        properties.priority = def.default_priority;
+      }
     }
 
     await this.broker.publish({
@@ -272,6 +287,16 @@ export default class PeanarApp {
     };
   }
 
+  protected _createEnqueuerWithPriority(def: IPeanarJobDefinition) {
+    return (priority: number, ...args: unknown[]) => {
+      debug(`Peanar: job.enqueueJob('${def.name}').withPriority(${priority})`);
+      const req = this._prepareJobRequest(def.name, args);
+      req.priority = priority;
+
+      return this.enqueueJobRequest(def, req);
+    }
+  }
+
   protected _createEnqueuer(def: IPeanarJobDefinition) {
     const self = this;
     function enqueueJob(...args: unknown[]): Promise<string> {
@@ -282,11 +307,19 @@ export default class PeanarApp {
     enqueueJob.rpc = async (...args: unknown[]) => {};
     enqueueJob.delayed = this._createDelayedEnqueuer(def);
     enqueueJob.transaction = this._createTransactor(def);
-
+    enqueueJob.withPriority = this._createEnqueuerWithPriority(def);
     return enqueueJob;
   }
 
   public job(def: IPeanarJobDefinitionInput) {
+    if (def.max_priority && def.default_priority) {
+      if (def.default_priority > def.max_priority) {
+        throw new Error('max_priority should be greater than or equeal to the default priority.');
+      }
+    } else if (def.default_priority) {
+      def.max_priority = def.default_priority;
+    }
+
     const job_def = this.registry.registerJob(def);
     debug(`Peanar: job('${def.queue}', '${job_def.name}')`);
 
@@ -316,7 +349,7 @@ export default class PeanarApp {
     for (const c of consumers) c.resume();
   }
 
-  protected async _startWorker(queue: string, consumer: IConsumer<any>, options?: Omit<IWorkerOptions, 'queues' | 'concurrency'>) {
+  protected async _startWorker(queue: string, consumer: Consumer, options?: Omit<IWorkerOptions, 'queues' | 'concurrency'>) {
     const worker = new Worker(this, consumer.channel, queue, {
       logger: options?.logger
     });

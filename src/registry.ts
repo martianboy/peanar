@@ -47,16 +47,20 @@ export default class Registry {
   }
 
   private extractAmqStructure(def: IPeanarJobDefinition) {
+    const main_queue_args: IQueueArgs = {};
+
     if (def.retry_exchange && def.retry_exchange.length > 0) {
       this.registerExchange(def.retry_exchange, 'topic');
 
-      this.registerQueue(def.queue, {
-        deadLetterExchange: def.retry_exchange,
-        deadLetterRoutingKey: '#'
-      }, true);
-    } else {
-      this.registerQueue(def.queue, {}, true);
+      main_queue_args.deadLetterExchange = def.retry_exchange;
+      main_queue_args.deadLetterRoutingKey = '#'
     }
+
+    if (def.max_priority) {
+      main_queue_args.maxPriority = def.max_priority;
+    }
+
+    this.registerQueue(def.queue, main_queue_args, true);
 
     this.registerExchange(`${def.queue}.retry-requeue`, 'topic');
     this.registerBinding(`${def.queue}.retry-requeue`, '#', def.queue);
