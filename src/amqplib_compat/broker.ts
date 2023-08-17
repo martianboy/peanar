@@ -273,6 +273,7 @@ export default class NodeAmqpBroker {
             contentType: 'application/json',
             mandatory: message.mandatory,
             persistent: true,
+            priority: message.properties?.priority
           }
         )) {
           release();
