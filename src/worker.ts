@@ -106,7 +106,9 @@ export default class PeanarWorker extends Transform {
   _destroy(error: Error | null, callback: (error: Error | null) => void) {
     if (this.state === EWorkerState.IDLE) {
       this.state = EWorkerState.CLOSED;
-      this.log(`Worker destroyed because of an error: ${error?.name}: ${error?.message}`);
+      if (error) {
+        this.log(`Worker destroyed because of an error: ${error?.name}: ${error?.message}`);
+      }
       this.log('Worker state: Closed');
       return callback(null);
     }
