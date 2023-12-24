@@ -65,7 +65,7 @@ export default class PeanarJob extends EventEmitter {
     }
   }
 
-  protected canRetry() {
+  canRetry() {
     return (
       typeof this.def.retry_exchange === 'string' &&
       (this.max_retries < 0 || this.attempt <= this.max_retries)
