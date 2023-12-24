@@ -149,7 +149,7 @@ export default class PeanarApp {
   }
 
   public async shutdown(timeout?: number) {
-    this.log('Peanar: shutdown()');
+    debug('shutdown() called');
 
     this.state = EAppState.CLOSING;
     await this._shutdown(timeout);
