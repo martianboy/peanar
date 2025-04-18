@@ -31,7 +31,7 @@
   },
   "homepage": "https://github.com/martianboy/peanar#readme",
   "devDependencies": {
-    "@types/amqplib": "^0.10.1",
+    "@types/amqplib": "^0.10.7",
     "@types/colors": "^1.2.1",
     "@types/debug": "^4.1.8",
     "@types/uuid": "^9.0.2",
@@ -40,9 +40,9 @@
     "typescript": "^5.1.6"
   },
   "dependencies": {
-    "amqplib": "^0.10.3",
+    "amqplib": "^0.10.7",
     "colors": "^1.4.0",
-    "debug": "^4.3.4",
+    "debug": "^4.4.0",
     "ts-amqp": "^0.8.1",
     "uuid": "^9.0.0"
   }

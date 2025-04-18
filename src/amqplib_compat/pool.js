@@ -15,7 +15,7 @@ class ChannelPool extends EventEmitter {
   constructor(connection, size, prefetch = 1) {
     super();
 
-    /** @type {import('amqplib').Connection} */
+    /** @type {import('amqplib').ChannelModel} */
     this._conn = connection;
     this._size = size;
     this.prefetch = prefetch;

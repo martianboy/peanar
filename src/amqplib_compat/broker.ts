@@ -1,7 +1,7 @@
 import debugFn from 'debug';
 const debug = debugFn('peanar:broker');
 
-import amqplib, { Connection, ConsumeMessage, Replies, Channel } from 'amqplib';
+import amqplib, { ChannelModel, ConsumeMessage, Replies, Channel } from 'amqplib';
 
 import { ChannelPool } from './pool';
 import { PeanarAdapterError } from '../exceptions';
@@ -28,8 +28,8 @@ function timeout(ms: number) {
  */
 export default class NodeAmqpBroker {
   private config: IBrokerOptions;
-  private conn?: Connection;
-  private _connectPromise?: Promise<Connection>;
+  private conn?: ChannelModel;
+  private _connectPromise?: Promise<ChannelModel>;
 
   private _channelConsumers = new Map<Channel, Set<Consumer>>();
 
@@ -39,7 +39,7 @@ export default class NodeAmqpBroker {
     this.config = config
   }
 
-  private async _connectAmqp(retry = 1): Promise<Connection> {
+  private async _connectAmqp(retry = 1): Promise<ChannelModel> {
     debug(`_connectAmqp(${retry})`)
     try {
       const c = this.config || {};

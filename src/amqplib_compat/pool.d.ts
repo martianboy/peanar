@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import { EventEmitter } from 'events';
-import { Channel, Connection } from 'amqplib'
+import { Channel, ChannelModel } from 'amqplib';
 declare type Releaser = () => void;
 interface ChannelWithReleaser {
     release: Releaser;
@@ -15,7 +15,7 @@ export class ChannelPool extends EventEmitter {
     private _size;
     private _isOpen;
     private prefetch?;
-    constructor(connection: Connection, size: number, prefetch?: number);
+    constructor(connection: ChannelModel, size: number, prefetch?: number);
     private softCleanUp;
     private hardCleanUp;
     [Symbol.asyncIterator](): AsyncIterableIterator<ChannelWithReleaser>;
