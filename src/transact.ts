@@ -4,10 +4,11 @@ import { Channel } from 'amqplib';
 import debugFn from 'debug';
 const debug = debugFn('peanar:transact');
 
-import { IPeanarJobDefinition, EAppState } from "./app";
+import { EAppState } from "./app";
 import PeanarApp from './app';
 import { PeanarInternalError } from './exceptions';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
+import { IPeanarJobDefinition } from './types';
 
 
 function timeout(ms: number) {

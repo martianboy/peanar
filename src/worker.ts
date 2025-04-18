@@ -5,7 +5,8 @@ import util from 'util';
 import 'colors';
 
 import { Transform, TransformCallback } from 'stream';
-import PeanarApp, { IPeanarRequest, IPeanarJob } from './app';
+import PeanarApp from './app';
+import { IPeanarJob, IPeanarRequest } from './types';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 import PeanarJob from './job';
 import { PeanarInternalError, PeanarJobCancelledError } from './exceptions';
