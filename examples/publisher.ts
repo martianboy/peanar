@@ -1,4 +1,4 @@
-import PeanarApp = require('../src');
+import PeanarApp from '../src';
 
 function dummy() {
   return new Promise((resolve, reject) => {

@@ -1,8 +1,14 @@
-import PeanarApp = require('../src');
+import PeanarApp from '../src';
+
+const timeouts: NodeJS.Timeout[] = [];
 
 function dummy() {
-  return new Promise((resolve, reject) => {
-    setTimeout(resolve, 4000);
+  console.log('Dummy job started');
+  return new Promise<void>((resolve, reject) => {
+    timeouts.push(setTimeout(() => {
+      console.log('Dummy job done');
+      resolve();
+    }, 120000));
   });
 }
 
@@ -49,7 +55,10 @@ async function main() {
 }
 
 async function shutdown() {
-  // clearInterval(interval);
+  console.log('Shutting down...');
+  for (const timeout of timeouts) {
+    clearTimeout(timeout);
+  }
   await app.shutdown(20000);
 }
 
