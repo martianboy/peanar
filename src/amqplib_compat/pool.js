@@ -2,6 +2,13 @@ const { EventEmitter } = require('events');
 const debugFn = require('debug');
 const debug = debugFn('peanar:pool');
 
+class ChannelPoolError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ChannelPoolError';
+  }
+}
+
 class ChannelPool extends EventEmitter {
   _queue = [];
 
@@ -20,13 +27,12 @@ class ChannelPool extends EventEmitter {
     this._size = size;
     this.prefetch = prefetch;
 
-    // this._conn.once('closing', this.softCleanUp);
     this._conn.once('close', this.hardCleanUp);
     this._conn.once('error', this.softCleanUp);
   }
 
   softCleanUp = () => {
-    debug('ChannelPool: soft cleanup');
+    debug('soft cleanup');
     this._isOpen = false;
 
     for (const resolver of this._releaseResolvers.values()) {
@@ -35,17 +41,17 @@ class ChannelPool extends EventEmitter {
   };
 
   hardCleanUp = () => {
-    debug('ChannelPool: hard cleanup');
+    debug('hard cleanup');
     this.softCleanUp();
 
     for (const { reject } of this._queue) {
-      reject(new Error('ChannelPool: Connection failed.'));
+      reject(new ChannelPoolError('Connection failed.'));
     }
   };
 
   async *[Symbol.asyncIterator]() {
     if (!this._isOpen) {
-      throw new Error('ChannelPool: [Symbol.asyncIterator]() called before pool is open.');
+      throw new ChannelPoolError('[Symbol.asyncIterator]() called before pool is open.');
     }
 
     while (this._isOpen) {
@@ -64,7 +70,7 @@ class ChannelPool extends EventEmitter {
   async open() {
     this._isOpen = true;
 
-    debug('ChannelPool: initializing the pool');
+    debug('initializing the pool');
     for (let i = 0; i < this._size; i++) {
       this._pool.push(await this.openChannel());
     }
@@ -75,13 +81,12 @@ class ChannelPool extends EventEmitter {
   async close() {
     this.emit('closing');
 
-    // this._conn.off('closing', this.softCleanUp);
     this._conn.off('close', this.hardCleanUp);
 
-    debug('ChannelPool: awaiting complete pool release');
+    debug('awaiting complete pool release');
     await Promise.all(this._acquisitions.values());
 
-    debug('ChannelPool: closing all channels');
+    debug('closing all channels');
     if (this._isOpen) {
       this._isOpen = false;
       for (const ch of this._pool) {
@@ -92,15 +97,13 @@ class ChannelPool extends EventEmitter {
     }
 
     this.emit('close');
-    debug('ChannelPool: pool closed successfully');
+    debug('pool closed successfully');
   }
 
   acquire() {
     if (!this._isOpen) {
-      throw new Error('ChannelPool: acquire() called before pool is open.');
+      throw new ChannelPoolError('acquire() called before pool is open.');
     }
-
-    debug('ChannelPool: acquire()');
 
     const promise = new Promise((res, rej) =>
       this._queue.push({
@@ -110,12 +113,9 @@ class ChannelPool extends EventEmitter {
     );
 
     if (this._pool.length > 0) {
-      debug(
-        `ChannelPool: ${this._pool.length} channels available in the pool. dispatch immediately`
-      );
       this.dispatchChannels();
     } else {
-      debug('ChannelPool: no channels available in the pool. awaiting...');
+      debug('no channels available in the pool. awaiting...');
     }
 
     return promise;
@@ -152,15 +152,14 @@ class ChannelPool extends EventEmitter {
 
       this._pool.splice(idx, 1, newCh);
     } else {
-      debug('ChannelPool: pool is closing. dropping closed channel from the pool');
+      debug('pool is closing. dropping closed channel from the pool');
       this._pool.splice(idx, 1);
     }
   }
 
   onChannelError(ch, err) {
     console.error(err);
-    this.emit('channelLost', ch, err)
-    // this.emit('error', err, ch);
+    this.emit('channelLost', ch, err);
   }
 
   async openChannel() {
@@ -176,7 +175,6 @@ class ChannelPool extends EventEmitter {
   }
 
   releaser(ch) {
-    // debug(`ChannelPool: channel ${ch.channelNumber} released`);
     this._pool.push(ch);
 
     if (this._releaseResolvers.has(ch)) {
@@ -184,7 +182,6 @@ class ChannelPool extends EventEmitter {
       releaseResolver();
     }
 
-    debug('ChannelPool: dispatch released channel to new requests');
     this.dispatchChannels();
   }
 
@@ -199,12 +196,11 @@ class ChannelPool extends EventEmitter {
         channel: ch,
         release: this.releaser.bind(this, ch)
       });
-
-      // debug(`ChannelPool: channel ${ch.channelNumber} acquired`);
     }
   }
 }
 
 module.exports = {
-  ChannelPool
+  ChannelPool,
+  ChannelPoolError,
 };
