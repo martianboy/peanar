@@ -199,7 +199,7 @@ export default class PeanarWorker extends Transform {
   }
 
   private async run(job: PeanarJob) {
-    this.log(`run('${job.name}:${job.id})'`);
+    this.log(`run('${job.name}:${job.id}')`);
     this.inflightJobs.set(job.id, job);
 
     try {
