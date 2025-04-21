@@ -35,8 +35,19 @@ export default class NodeAmqpBroker {
 
   public pool?: ChannelPool;
 
-  constructor(config: IBrokerOptions) {
-    this.config = config
+  public constructor(config: IBrokerOptions) {
+    this.config = config;
+    this.connect().catch(ex => {
+      debug('Error connecting to AMQP broker:', ex);
+    });
+  }
+
+  public ready(): Promise<void> {
+    const NOOP = () => {};
+    if (!this._connectPromise) {
+      throw new PeanarAdapterError('Not connected!');
+    }
+    return this._connectPromise!.then(NOOP, NOOP);
   }
 
   private async _connectAmqp(retry = 1): Promise<ChannelModel> {
@@ -134,7 +145,7 @@ export default class NodeAmqpBroker {
   }
 
   public async queues(queues: IQueue[]) {
-    await this.connect();
+    await this.ready();
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return await Promise.all(this.pool.mapOver(queues, async (ch, queue) => {
@@ -148,7 +159,7 @@ export default class NodeAmqpBroker {
   }
 
   public async exchanges(exchanges: IExchange[]) {
-    await this.connect();
+    await this.ready();
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return await Promise.all(this.pool.mapOver(exchanges, async (ch, exchange) => {
@@ -160,7 +171,7 @@ export default class NodeAmqpBroker {
   }
 
   public async bindings(bindings: IBinding[]) {
-    await this.connect();
+    await this.ready();
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return await Promise.all(this.pool.mapOver(bindings, async (ch, binding) => {
@@ -182,6 +193,7 @@ export default class NodeAmqpBroker {
   }
 
   private async rewireConsumersOnChannel(ch: Channel, newCh: Channel) {
+    debug(`rewireConsumersOnChannel()`);
     const set = this._channelConsumers.get(ch);
     if (!set || set.size < 1) return;
 
@@ -219,7 +231,7 @@ export default class NodeAmqpBroker {
       }
 
       return consumer;
-    }, ex => Promise.reject(ex));
+    });
   }
 
   public consume(queue: string): PromiseLike<Consumer> {
@@ -244,7 +256,7 @@ export default class NodeAmqpBroker {
    * unless `this.pool` is empty. Call with care.
    */
   public async publish(message: IMessage<unknown>) {
-    await this.connect();
+    await this.ready();
 
     const _doAcquire = async (): Promise<{
       release: () => void;
@@ -262,7 +274,6 @@ export default class NodeAmqpBroker {
 
     const _doPublish = async (): Promise<boolean> => {
       const { channel, release } = await _doAcquire()
-      debug(`publish to channel`);
 
       try {
         if (channel.publish(
