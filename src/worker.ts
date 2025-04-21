@@ -97,6 +97,9 @@ export default class PeanarWorker extends Transform {
 
   onChannelClosed = (err: CloseReason) => {
     this._channel_lost = true;
+    for (const job of this.inflightJobs.values()) {
+      job.channel = undefined;
+    }
   }
 
   async shutdown(timeout?: number) {

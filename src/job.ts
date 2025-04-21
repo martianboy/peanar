@@ -13,7 +13,7 @@ export default class PeanarJob extends EventEmitter {
   public handler: (...args: any[]) => Promise<any>;
   public deliveryTag?: bigint;
   public correlationId?: string;
-  public channel: Channel;
+  public channel: Channel | undefined;
   public def: IPeanarJobDefinition;
 
   public attempt: number;
@@ -50,7 +50,7 @@ export default class PeanarJob extends EventEmitter {
 
   ack() {
     if (!this.channel)
-      throw new PeanarAdapterError("Worker: AMQP connection lost!");
+      throw new PeanarAdapterError("Worker: AMQP channel lost!");
 
     if (!this.deliveryTag)
       throw new PeanarJobError("Worker: No deliveryTag set!");
@@ -71,7 +71,7 @@ export default class PeanarJob extends EventEmitter {
 
   async reject(ex?: Error & { retry?: boolean; }) {
     if (!this.channel)
-      throw new PeanarAdapterError("Worker: AMQP connection lost!");
+      throw new PeanarAdapterError("Worker: AMQP channel lost!");
 
     if (!this.deliveryTag)
       throw new PeanarJobError("Worker: No deliveryTag set!");
@@ -121,6 +121,8 @@ export default class PeanarJob extends EventEmitter {
 
   protected async _declareRetryQueues() {
     if (!this.def.retry_exchange) throw new PeanarInternalError('Attempting retry without a retry_exchange specified.');
+    if (!this.channel)
+      throw new PeanarAdapterError("Worker: AMQP channel lost!");
 
     const retry_name = this.retry_name;
     const requeue_name = this.requeue_name;
