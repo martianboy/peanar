@@ -41,11 +41,10 @@ export enum EAppState {
 }
 
 export default class PeanarApp {
-  public registry = new Registry;
+  public registry: Registry;
 
   public log: (...args: any[]) => any;
   public broker: Broker;
-  public jobClass: typeof PeanarJob;
 
   protected consumers: Map<string, Consumer[]> = new Map;
   protected workers: Map<string, Worker[]> = new Map;
@@ -61,19 +60,18 @@ export default class PeanarApp {
       prefetch: options.prefetch || 1
     });
 
-    this.jobClass = options.jobClass || PeanarJob;
+    const jobClass = options.jobClass || PeanarJob;
+    this.registry = new Registry({ jobClass });
     this.log = options.logger || console.log.bind(console);
   }
 
   protected async _shutdown(timeout?: number) {
-    // Immediately stop receiving new messages
-    await Promise.all([...this.consumers.values()].flat().map(c => c.cancel()));
-    debug('shutdown(): consumers cancelled');
-
     // Anything that is subject to the timeout should go in here
-    await Promise.all([
+    await Promise.allSettled([
       // Wait a few seconds for running jobs to finish their work
       ...[...this.workers.values()].flat().map(w => w.shutdown(timeout)),
+      // stop receiving new messages
+      ...[...this.consumers.values()].flat().map(c => c.cancel()),
 
       // Also wait for pending transactions to be finalized
       ...[...this.transactions].map(t => t.waitUntil(timeout).catch(() => {
@@ -160,8 +158,6 @@ export default class PeanarApp {
   }
 
   public async enqueueJobRequest(def: IPeanarJobDefinition, req: IPeanarRequest) {
-    debug(`Peanar: enqueueJob(${def.queue}:${def.name}})`);
-
     return this._publish(def.routingKey, def.exchange, def, req);
   }
 
@@ -290,7 +286,7 @@ export default class PeanarApp {
   }
 
   protected async _startWorker(queue: string, consumer: Consumer, options?: Omit<IWorkerOptions, 'queues' | 'concurrency'>) {
-    const worker = new Worker(this, consumer.channel, queue, {
+    const worker = new Worker(this.registry, consumer.channel, queue, {
       logger: options?.logger
     });
 

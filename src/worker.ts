@@ -5,8 +5,7 @@ import util from 'util';
 import 'colors';
 
 import { Transform, TransformCallback } from 'stream';
-import PeanarApp from './app';
-import { IPeanarJob, IPeanarRequest } from './types';
+import { IJobRegistry, IPeanarRequest } from './types';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 import PeanarJob from './job';
 import { PeanarInternalError, PeanarJobCancelledError } from './exceptions';
@@ -49,12 +48,10 @@ const SHUTDOWN_TIMEOUT = 10000;
 const _to_ack = new Set<string>();
 
 export default class PeanarWorker extends Transform {
-  private app: PeanarApp;
   private _channel: Channel;
-  private queue: string;
   private n: number;
   private state: EWorkerState = EWorkerState.IDLE;
-  private activeJob?: PeanarJob;
+  private inflightJobs: Map<string, PeanarJob> = new Map();
 
   private destroy_cb?: (err: Error | null) => void;
   private _destroy_timeout?: NodeJS.Timeout;
@@ -62,13 +59,16 @@ export default class PeanarWorker extends Transform {
   private _channel_lost: boolean = false;
   public logger: (message?: any, ...optionalParams: any[]) => void;
 
-  constructor(app: PeanarApp, channel: Channel, queue: string, options?: WorkerOptions) {
+  constructor(
+    private registry: IJobRegistry,
+    channel: Channel,
+    private queue: string,
+    options?: WorkerOptions
+  ) {
     super({
       objectMode: true
     });
 
-    this.app = app;
-    this.queue = queue;
     this.n = counter++;
 
     this._channel = channel;
@@ -87,6 +87,9 @@ export default class PeanarWorker extends Transform {
     this._channel_lost = false;
 
     this._channel = ch;
+    for (const job of this.inflightJobs.values()) {
+      job.channel = ch;
+    }
     this._channel.once('close', this.onChannelClosed);
     this.emit('channelChanged', ch);
     this.log('channel changed!');
@@ -94,7 +97,6 @@ export default class PeanarWorker extends Transform {
 
   onChannelClosed = (err: CloseReason) => {
     this._channel_lost = true;
-    // if (this.activeJob) this.activeJob.cancel(err || 'Channel closed');
   }
 
   async shutdown(timeout?: number) {
@@ -117,9 +119,12 @@ export default class PeanarWorker extends Transform {
       this.state = EWorkerState.CLOSING;
 
       this.destroy_cb = (err) => {
-        if (this.activeJob) {
-          this.log('cancelling active job');
-          this.activeJob.cancel();
+        if (this.inflightJobs.size > 0) {
+          this.log(`Worker destroyed while processing ${this.inflightJobs.size} inflight jobs.`);
+          for (const [id, job] of this.inflightJobs) {
+            this.log(`Cancelling job ${job.name}:${id}`);
+            job.cancel();
+          }
         }
         this.state = EWorkerState.CLOSED;
         this.log('Worker state: Closed');
@@ -135,7 +140,7 @@ export default class PeanarWorker extends Transform {
 
   getJobDefinition(name: string) {
     try {
-      return this.app.registry.getJobDefinition(name);
+      return this.registry.getJobDefinition(name);
     } catch (ex) {
       if (ex instanceof PeanarInternalError) {}
       else throw ex;
@@ -165,7 +170,7 @@ export default class PeanarWorker extends Transform {
 
     debug(`_getJob(${body.name})`);
 
-    const def = this.getJobDefinition(body.name);
+    const def = this.registry.getJobDefinition(body.name);
     if (!def) {
       console.warn(`PeanarWorker#_getJob: No handler registered for ${this.queue}.${body.name}!`)
       return
@@ -176,30 +181,26 @@ export default class PeanarWorker extends Transform {
       ? (headers['x-death'] as IDeathInfo[]).find(d => d.queue === def.queue)
       : undefined;
 
-    const req: IPeanarJob = {
+    const req: IPeanarRequest = {
       ...def,
       deliveryTag: delivery.envelope.deliveryTag,
-      replyTo: delivery.properties.replyTo,
       correlationId: delivery.properties.correlationId,
-      queue: this.queue,
       args: body.args,
       id: body.id,
       attempt: deathInfo ? Number(deathInfo.count) + 1 : 1
     };
 
     if (delivery.properties.replyTo) {
-      req.replyTo = delivery.properties.replyTo;
+      // req.replyTo = delivery.properties.replyTo;
       req.correlationId = delivery.properties.correlationId;
     }
 
-    const jobClass = def.jobClass ?? this.app.jobClass;
-
-    return new jobClass(req, def, this.app, this._channel);
+    return this.registry.createJob(body.name, req, this._channel);
   }
 
   private async run(job: PeanarJob) {
-    this.log('run()');
-    this.activeJob = job;
+    this.log(`run('${job.name}:${job.id})'`);
+    this.inflightJobs.set(job.id, job);
 
     try {
       const result = await job.perform();
@@ -215,9 +216,6 @@ export default class PeanarWorker extends Transform {
       this.log(`Job ${job.name}:${job.id} SUCCESS!`);
 
       job.ack();
-      _to_ack.delete(job.id);
-      this.log(`_to_ack.delete(${job.id});`);
-
       this.log(`Job ${job.name}:${job.id} was acked.`);
     } catch (ex: any) {
       if (ex instanceof PeanarJobCancelledError) {
@@ -241,12 +239,21 @@ export default class PeanarWorker extends Transform {
       await job.reject(ex);
       this.log(`Job ${job.name}:${job.id} was rejected.`);
     } finally {
-      this.activeJob = undefined;
+      this.inflightJobs.delete(job.id);
+      _to_ack.delete(job.id);
+      this.log(`_to_ack.delete(${job.id});`);
+    }
+  }
+
+  private rejectDelivery(delivery: IDelivery) {
+    if (!this._channel_lost) {
+      // @ts-ignore
+      this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
     }
   }
 
   _transform(delivery: IDelivery, _encoding: string, cb: TransformCallback) {
-    if (this.app.state === "CLOSING" || this.app.state === "CLOSED") {
+    if (this.state === EWorkerState.CLOSING || this.state === EWorkerState.CLOSED) {
       this.log(`Received job ${Number(delivery.envelope.deliveryTag)} while shutting down. Holding on to it...`);
       return cb();
     }
@@ -272,23 +279,31 @@ export default class PeanarWorker extends Transform {
       try {
         job = this._getJob(delivery);
       } catch (ex: any) {
-        // @ts-ignore
-        this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
+        this.log(`Error while getting job: ${ex.message}`);
+        this.rejectDelivery(delivery);
         return done(ex);
       }
 
       if (!job) {
-        // @ts-ignore
-        this.channel.reject({ fields: { deliveryTag: Number(delivery.envelope.deliveryTag) } }, false);
-
+        this.log(`No job found in delivery ${delivery.envelope.deliveryTag}.`);
+        this.rejectDelivery(delivery);
         return done();
       }
 
-      if (_to_ack.has(job.id)) {
-        this.log(`Job ${job.name}:${job.id} will be acked from pending list.`);
-        job.ack();
-        _to_ack.delete(job.id);
-        return done();
+      this.log(`Job ${job.name}:${job.id} received!`);
+      if (delivery.envelope.redeliver) {
+        if (this.inflightJobs.has(job.id)) {
+          // This means the old delivery tag is no longer valid
+          this.log(`Redelivered job ${job.name}:${job.id} is already in flight! Resetting the deliveryTag.`);
+          this.inflightJobs.get(job.id)!.deliveryTag = delivery.envelope.deliveryTag;
+          return done();
+        } else if (_to_ack.has(job.id)) {
+          // This should never happen, but just in case...
+          this.log(`Redelivered job ${job.name}:${job.id} is on the pending list by another worker!`);
+          job.ack();
+          _to_ack.delete(job.id);
+          return done();
+        }
       }
 
       this.run(job).then(_ => done(), done);

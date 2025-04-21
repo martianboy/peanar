@@ -1,9 +1,15 @@
-import { IPeanarJobDefinition, IPeanarJobDefinitionInput } from './types';
+import { IJobRegistry, IPeanarJobDefinition, IPeanarJobDefinitionInput, IPeanarRequest } from './types';
 import { PeanarInternalError } from './exceptions';
 import { IExchange, EExchangeType } from 'ts-amqp/dist/interfaces/Exchange';
 import { IBinding, IQueue, IQueueArgs } from 'ts-amqp/dist/interfaces/Queue';
+import type PeanarJob from './job';
+import type { Channel } from 'amqplib';
 
-export default class Registry {
+interface RegistryOptions {
+  jobClass: typeof PeanarJob;
+}
+
+export default class Registry implements IJobRegistry {
   private _jobs: Map<string, IPeanarJobDefinition> = new Map();
 
   private _workerQueues: Set<string> = new Set();
@@ -11,11 +17,14 @@ export default class Registry {
   private _exchanges: Map<string, IExchange> = new Map();
   private _bindings: Set<string> = new Set();
 
+  public constructor(private opts: RegistryOptions) {}
+
   private _prepareJobDefinition(def: IPeanarJobDefinitionInput): IPeanarJobDefinition {
     return {
       routingKey: def.queue,
       exchange: '',
       ...def,
+      jobClass: def.jobClass || this.opts.jobClass,
       name: def.name && def.name.length ? def.name : def.handler.name
     };
   }
@@ -130,5 +139,15 @@ export default class Registry {
     }
 
     return def;
+  }
+
+  public createJob(
+    name: string,
+    req: IPeanarRequest,
+    channel: Channel
+  ) {
+    const def = this.getJobDefinition(name);
+
+    return new def.jobClass(req, def, channel);
   }
 }

@@ -1,5 +1,6 @@
 import { IConnectionParams } from "ts-amqp/dist/interfaces/Connection";
 import type PeanarJob from "./job";
+import { Channel } from "amqplib";
 
 export interface IPeanarJobDefinition {
   name: string;
@@ -10,7 +11,7 @@ export interface IPeanarJobDefinition {
   exchange?: string;
   replyTo?: string;
 
-  jobClass?: typeof PeanarJob;
+  jobClass: typeof PeanarJob;
 
   expires?: number;
   retry_exchange?: string;
@@ -74,4 +75,11 @@ export interface IPeanarOptions {
   logger?(...args: any[]): any;
 }
 
-export type JobDefinitionGetter = (name: string) => IPeanarJobDefinition;
+export interface IJobRegistry {
+  getJobDefinition(name: string): IPeanarJobDefinition;
+  createJob(
+    name: string,
+    req: IPeanarRequest,
+    channel: Channel
+  ): PeanarJob;
+}

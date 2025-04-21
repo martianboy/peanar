@@ -3,7 +3,6 @@ const debug = debugFn('peanar:job');
 
 import { EventEmitter } from "events";
 import { PeanarAdapterError, PeanarJobError, PeanarJobCancelledError, PeanarInternalError } from "./exceptions";
-import PeanarApp from "./app";
 import { IPeanarRequest, IPeanarJobDefinition } from "./types";
 import { Channel } from 'amqplib';
 
@@ -15,7 +14,6 @@ export default class PeanarJob extends EventEmitter {
   public deliveryTag?: bigint;
   public correlationId?: string;
   public channel: Channel;
-  public app: PeanarApp;
   public def: IPeanarJobDefinition;
 
   public attempt: number;
@@ -26,7 +24,6 @@ export default class PeanarJob extends EventEmitter {
   constructor(
     req: IPeanarRequest,
     def: IPeanarJobDefinition,
-    app: PeanarApp,
     channel: Channel
   ) {
     super()
@@ -44,7 +41,6 @@ export default class PeanarJob extends EventEmitter {
     this.handler = def.handler;
 
     this.channel = channel;
-    this.app = app;
   }
 
   cancel(reason?: Error) {
@@ -115,16 +111,6 @@ export default class PeanarJob extends EventEmitter {
     }
   }
 
-  enqueue() {
-    return this.app.enqueueJobRequest(this.def, {
-      id: this.id,
-      args: this.args,
-      name: this.name,
-      attempt: 1,
-      correlationId: this.correlationId
-    });
-  }
-
   protected get retry_name() {
     return `${this.def.queue}.retry`;
   }
@@ -141,24 +127,17 @@ export default class PeanarJob extends EventEmitter {
 
     try {
       debug(`declare retry queue ${retry_name}`);
-      await this.app.broker.queues([{
-        name: retry_name,
-        arguments: {
-          expires: 2 * (this.def.retry_delay || 60000),
-          messageTtl: this.def.retry_delay || 60000,
-          deadLetterExchange: requeue_name
-        },
-        auto_delete: false,
+      this.channel.assertQueue(retry_name, {
         durable: true,
-        exclusive: false
-      }]);
+        autoDelete: false,
+        exclusive: false,
+        expires: 2 * (this.def.retry_delay || 60000),
+        messageTtl: this.def.retry_delay || 60000,
+        deadLetterExchange: requeue_name,
+      });
 
       debug(`bind retry exchange ${this.def.retry_exchange} to retry queue ${retry_name}`);
-      await this.app.broker.bindings([{
-        exchange: this.def.retry_exchange,
-        queue: retry_name,
-        routing_key: '#'
-      }]);
+      await this.channel.bindQueue(retry_name, this.def.retry_exchange, '#');
 
       debug('_declareRetryQueues(): done');
     }
@@ -166,28 +145,6 @@ export default class PeanarJob extends EventEmitter {
       console.error(ex);
       throw ex;
     }
-  }
-
-  retry() {
-    if (!this.max_retries || this.attempt >= this.max_retries) {
-      console.warn('Illegal PeanarJob.retry()!');
-    }
-
-    return this.app.enqueueJobRequest(this.def, {
-      id: this.id,
-      args: this.args,
-      name: this.name,
-      attempt: this.attempt + 1,
-      correlationId: this.correlationId
-    });
-  }
-
-  pauseQueue() {
-    return this.app.pauseQueue(this.def.queue);
-  }
-
-  resumeQueue() {
-    return this.app.resumeQueue(this.def.queue);
   }
 
   _perform() {
