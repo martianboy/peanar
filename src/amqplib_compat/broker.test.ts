@@ -6,6 +6,7 @@ import amqplib, { Replies } from 'amqplib';
 
 import NodeAmqpBroker from './broker';
 import { ChannelPool } from './pool';
+import Consumer from './consumer';
 
 // Mock amqplib Channel
 const createMockChannel = (id: number) => ({
@@ -173,5 +174,19 @@ describe('NodeAmqpBroker', () => {
         expect(connectionEmitter.listenerCount('close')).to.equal(0);
       });
     }
+  });
+
+  describe('rewireConsumersOnChannel', () => {
+    it('should rewire consumers to a new channel', async () => {
+      const newChannel = createMockChannel(2);
+      const consumer = new Consumer(mockChannel, 'test-queue');
+      (broker as any)._channelConsumers.set(mockChannel, new Set([consumer]));
+
+      await (broker as any).rewireConsumersOnChannel(mockChannel, newChannel);
+
+      sinon.assert.calledOnce(newChannel.consume);
+      expect((broker as any)._channelConsumers.get(newChannel)).to.include(consumer);
+      expect((broker as any)._channelConsumers.get(mockChannel)).to.be.undefined;
+    });
   });
 });

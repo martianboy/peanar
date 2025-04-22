@@ -210,7 +210,7 @@ export default class NodeAmqpBroker {
     }
 
     this._channelConsumers.delete(ch);
-    this._channelConsumers.set(ch, set);
+    this._channelConsumers.set(newCh, set);
   }
 
   private async _startConsumer(ch: Channel, queue: string): Promise<Consumer> {
