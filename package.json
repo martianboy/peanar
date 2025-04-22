@@ -39,12 +39,14 @@
     "@types/node": "^16.18.126",
     "@types/sinon": "^17.0.4",
     "@types/uuid": "^9.0.2",
+    "@types/wtfnode": "^0.7.3",
     "chai": "^4.5.0",
     "eslint": "^9.25.1",
     "mocha": "^11.1.0",
     "sinon": "^20.0.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "wtfnode": "^0.10.0"
   },
   "dependencies": {
     "amqplib": "^0.10.7",
