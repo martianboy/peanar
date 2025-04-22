@@ -15,7 +15,7 @@ class ChannelPool extends EventEmitter {
   constructor(connection, size, prefetch = 1) {
     super();
 
-    /** @type {import('amqplib').ChannelModel} */
+    /** @type {import('./pool.d.ts').ChannelCreator} */
     this._conn = connection;
     this._size = size;
     this.prefetch = prefetch;
@@ -54,7 +54,7 @@ class ChannelPool extends EventEmitter {
   }
 
   get size() {
-    return this._size;
+    return this._pool.length;
   }
 
   get isOpen() {

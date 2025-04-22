@@ -73,10 +73,9 @@ export default class NodeAmqpBroker {
     const doConnect = async () => {
       debug('doConnect()');
 
-      const conn = await this._connectAmqp()
+      const conn = await this._connectAmqp();
 
       this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
-
       await this.pool.open();
 
       if (this._channelConsumers.size > 0) {
@@ -107,6 +106,9 @@ export default class NodeAmqpBroker {
         this._connectPromise = undefined;
         if (err && err.code >= 300) {
           this.connect();
+        } else {
+          this.pool!.close();
+          this.pool = undefined;
         }
       });
 
@@ -114,6 +116,14 @@ export default class NodeAmqpBroker {
     }
 
     return (this._connectPromise = doConnect());
+  }
+
+  ready() {
+    if (!this._connectPromise) {
+      throw new PeanarAdapterError('Not connected!');
+    }
+
+    return this._connectPromise;
   }
 
   public async shutdown() {
@@ -128,6 +138,8 @@ export default class NodeAmqpBroker {
     if (this.conn) {
       this.conn.off('close', this.connect);
       await this.conn.close();
+      this._connectPromise = undefined;
+      this._channelConsumers.clear();
       this.conn = undefined;
       debug('connection closed.');
     }
@@ -219,7 +231,7 @@ export default class NodeAmqpBroker {
       }
 
       return consumer;
-    }, ex => Promise.reject(ex));
+    });
   }
 
   public consume(queue: string): PromiseLike<Consumer> {
@@ -234,6 +246,7 @@ export default class NodeAmqpBroker {
     return this.pool.mapOver(queues, async (ch, queue) => {
       return {
         queue,
+        channel: ch,
         consumer: await this._startConsumer(ch, queue)
       };
     });

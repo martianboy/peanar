@@ -1,13 +1,17 @@
 import { Readable } from 'stream';
-import { Channel, ConsumeMessage } from 'amqplib';
+import { ConsumeMessage, Replies } from 'amqplib';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
+
+export interface ConsumerCanceller {
+  cancel: (tag: string) => Promise<Replies.Empty>;
+}
 
 export default class Consumer extends Readable {
   public tag?: string;
   public queue: string;
-  private _channel: Channel;
+  private _channel: ConsumerCanceller;
 
-  public constructor(channel: Channel, queue: string) {
+  public constructor(channel: ConsumerCanceller, queue: string) {
     super({
       objectMode: true
     });

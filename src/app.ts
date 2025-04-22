@@ -12,6 +12,7 @@ import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import Registry from './registry';
 import PeanarTransactor from './transact';
 import Consumer from './amqplib_compat/consumer';
+import { Channel } from 'amqplib';
 
 export interface IPeanarJobDefinitionInput {
   queue: string;
@@ -349,8 +350,8 @@ export default class PeanarApp {
     for (const c of consumers) c.resume();
   }
 
-  protected async _startWorker(queue: string, consumer: Consumer, options?: Omit<IWorkerOptions, 'queues' | 'concurrency'>) {
-    const worker = new Worker(this, consumer.channel, queue, {
+  protected async _startWorker(queue: string, channel: Channel, consumer: Consumer, options?: Omit<IWorkerOptions, 'queues' | 'concurrency'>) {
+    const worker = new Worker(this, channel, queue, {
       logger: options?.logger
     });
 
@@ -390,9 +391,9 @@ export default class PeanarApp {
     const queues_to_start = [...worker_queues].flatMap(q => Array(concurrency).fill(q));
 
     return Promise.all(this.broker.consumeOver(queues_to_start).map(async p => {
-      const { queue, consumer } = await p;
+      const { queue, channel, consumer } = await p;
 
-      return this._startWorker(queue, consumer, options);
+      return this._startWorker(queue, channel, consumer, options);
     }));
   }
 }
