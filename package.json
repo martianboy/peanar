@@ -1,6 +1,6 @@
 {
   "name": "peanar",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "description": "A job queue for Node.js based on RabbitMQ",
   "main": "dist/index.js",
   "scripts": {
