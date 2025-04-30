@@ -1,32 +1,54 @@
-const { EventEmitter } = require('events');
-const debugFn = require('debug');
+import { EventEmitter } from 'events';
+import debugFn from 'debug';
+import type { Channel } from 'amqplib';
 const debug = debugFn('peanar:pool');
 
-class ChannelPool extends EventEmitter {
-  _queue = [];
+type Releaser = () => void;
+export interface ChannelWithReleaser {
+  release: Releaser;
+  channel: Channel;
+}
 
-  /** @type {import('amqplib').Channel[]} */
-  _pool = [];
-  _acquisitions = new Map();
-  _releaseResolvers = new Map();
+export interface ChannelCreator {
+  createChannel(): Promise<Channel>;
 
-  _isOpen = false;
+  on(event: 'error', listener: () => void): this;
+  on(event: 'close', listener: () => void): this;
+  once(event: 'error', listener: () => void): this;
+  once(event: 'close', listener: () => void): this;
+  off(event: 'error', listener: () => void): this;
+  off(event: 'close', listener: () => void): this;
+}
 
-  constructor(connection, size, prefetch = 1) {
+interface ChannelDispatcher {
+  resolve: (value: ChannelWithReleaser) => void;
+  reject: (reason?: unknown) => void;
+}
+
+export class ChannelPool extends EventEmitter {
+  private _conn: ChannelCreator;
+  private _size: number;
+  private _queue: ChannelDispatcher[] = [];
+
+  private _pool: Channel[] = [];
+  private _acquisitions = new Map<Channel, Promise<void>>();
+  private _releaseResolvers = new Map<Channel, Releaser>();
+
+  private _isOpen = false;
+
+  constructor(connection: ChannelCreator, size: number, private prefetch = 1) {
     super();
 
-    /** @type {import('./pool.d.ts').ChannelCreator} */
     this._conn = connection;
     this._size = size;
     this.prefetch = prefetch;
 
-    // this._conn.once('closing', this.softCleanUp);
     this._conn.once('close', this.hardCleanUp);
     this._conn.once('error', this.softCleanUp);
   }
 
   softCleanUp = () => {
-    debug('ChannelPool: soft cleanup');
+    debug('soft cleanup');
     this._isOpen = false;
 
     for (const resolver of this._releaseResolvers.values()) {
@@ -53,15 +75,15 @@ class ChannelPool extends EventEmitter {
     }
   }
 
-  get size() {
+  get size(): number {
     return this._pool.length;
   }
 
-  get isOpen() {
+  get isOpen(): boolean {
     return this._isOpen;
   }
 
-  async open() {
+  async open(): Promise<void> {
     this._isOpen = true;
 
     debug('ChannelPool: initializing the pool');
@@ -72,10 +94,9 @@ class ChannelPool extends EventEmitter {
     this.emit('open');
   }
 
-  async close() {
+  async close(): Promise<void> {
     this.emit('closing');
 
-    // this._conn.off('closing', this.softCleanUp);
     this._conn.off('close', this.hardCleanUp);
 
     debug('ChannelPool: awaiting complete pool release');
@@ -95,14 +116,14 @@ class ChannelPool extends EventEmitter {
     debug('ChannelPool: pool closed successfully');
   }
 
-  acquire() {
+  acquire(): Promise<ChannelWithReleaser> {
     if (!this._isOpen) {
       throw new Error('ChannelPool: acquire() called before pool is open.');
     }
 
     debug('ChannelPool: acquire()');
 
-    const promise = new Promise((res, rej) =>
+    const promise: Promise<ChannelWithReleaser> = new Promise((res, rej) =>
       this._queue.push({
         resolve: res,
         reject: rej
@@ -121,11 +142,11 @@ class ChannelPool extends EventEmitter {
     return promise;
   }
 
-  mapOver(arr, fn) {
+  mapOver<T, R>(arr: T[], fn: (ch: Channel, item: T) => Promise<R>): Promise<R>[] {
     return arr.map(item => this.acquireAndRun(ch => fn(ch, item)));
   }
 
-  async acquireAndRun(fn) {
+  async acquireAndRun<R>(fn: (ch: Channel) => Promise<R>): Promise<R> {
     const { channel, release } = await this.acquire();
     const result = await fn(channel);
     release();
@@ -133,37 +154,34 @@ class ChannelPool extends EventEmitter {
     return result;
   }
 
-  async onChannelClose(ch) {
-    // debug(`ChannelPool: channel ${ch.channelNumber} closed`);
-
+  async onChannelClose(ch: Channel) {
     this._acquisitions.delete(ch);
     this._releaseResolvers.delete(ch);
 
     const idx = this._pool.indexOf(ch);
     if (this._isOpen) {
-      // debug(`ChannelPool: replacing closed channel ${ch.channelNumber} with a new one`);
       let newCh = undefined
       try {
         newCh = await this.openChannel();
         this.emit('channelReplaced', ch, newCh);
       } catch (ex) {
-        this.softCleanUp();
+        debug('failed to open a new channel to replace a lost one. transitioning to closed state!', ex);
+        return this.softCleanUp();
       }
 
       this._pool.splice(idx, 1, newCh);
     } else {
-      debug('ChannelPool: pool is closing. dropping closed channel from the pool');
+      debug('pool is closing. dropping closed channel from the pool');
       this._pool.splice(idx, 1);
     }
   }
 
-  onChannelError(ch, err) {
+  onChannelError(ch: Channel, err: unknown) {
     console.error(err);
     this.emit('channelLost', ch, err)
-    // this.emit('error', err, ch);
   }
 
-  async openChannel() {
+  async openChannel(): Promise<Channel> {
     const ch = await this._conn.createChannel();
     ch.once('close', this.onChannelClose.bind(this, ch));
     ch.once('error', this.onChannelError.bind(this, ch));
@@ -175,36 +193,28 @@ class ChannelPool extends EventEmitter {
     return ch;
   }
 
-  releaser(ch) {
-    // debug(`ChannelPool: channel ${ch.channelNumber} released`);
+  releaser(ch: Channel) {
     this._pool.push(ch);
 
     if (this._releaseResolvers.has(ch)) {
-      const releaseResolver = this._releaseResolvers.get(ch);
+      const releaseResolver = this._releaseResolvers.get(ch)!;
       releaseResolver();
     }
 
-    debug('ChannelPool: dispatch released channel to new requests');
     this.dispatchChannels();
   }
 
   dispatchChannels() {
     while (this._queue.length > 0 && this._pool.length > 0) {
-      const dispatcher = this._queue.shift();
-      const ch = this._pool.shift();
-      const acquisition = new Promise(res => this._releaseResolvers.set(ch, res));
+      const dispatcher = this._queue.shift()!;
+      const ch = this._pool.shift()!;
+      const acquisition = new Promise<void>(res => this._releaseResolvers.set(ch, res));
       this._acquisitions.set(ch, acquisition);
 
       dispatcher.resolve({
         channel: ch,
         release: this.releaser.bind(this, ch)
       });
-
-      // debug(`ChannelPool: channel ${ch.channelNumber} acquired`);
     }
   }
 }
-
-module.exports = {
-  ChannelPool
-};
