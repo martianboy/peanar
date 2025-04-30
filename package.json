@@ -28,17 +28,16 @@
     "url": "https://github.com/martianboy/peanar/issues"
   },
   "engines": {
-    "node": ">= 16.x"
+    "node": ">= 18.x"
   },
   "homepage": "https://github.com/martianboy/peanar#readme",
   "devDependencies": {
     "@istanbuljs/nyc-config-typescript": "^1.0.2",
     "@types/amqplib": "^0.10.7",
     "@types/chai": "^4.3.20",
-    "@types/colors": "^1.2.1",
     "@types/debug": "^4.1.8",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^16.18.126",
+    "@types/node": "^18.x",
     "@types/sinon": "^17.0.4",
     "@types/uuid": "^9.0.2",
     "@types/wtfnode": "^0.7.3",
@@ -53,7 +52,6 @@
   },
   "dependencies": {
     "amqplib": "^0.10.7",
-    "colors": "^1.4.0",
     "debug": "^4.4.0",
     "ts-amqp": "^0.8.1",
     "uuid": "^9.0.0"
