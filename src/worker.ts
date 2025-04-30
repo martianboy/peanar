@@ -177,18 +177,11 @@ export default class PeanarWorker extends Transform {
     const req: IPeanarJob = {
       ...def,
       deliveryTag: delivery.envelope.deliveryTag,
-      replyTo: delivery.properties.replyTo,
-      correlationId: delivery.properties.correlationId,
       queue: this.queue,
       args: body.args,
       id: body.id,
       attempt: deathInfo ? Number(deathInfo.count) + 1 : 1
     };
-
-    if (delivery.properties.replyTo) {
-      req.replyTo = delivery.properties.replyTo;
-      req.correlationId = delivery.properties.correlationId;
-    }
 
     const jobClass = def.jobClass ?? this.app.jobClass;
 
