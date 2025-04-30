@@ -10,7 +10,6 @@ import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Writable, TransformCallback } from 'stream';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import Registry from './registry';
-import PeanarTransactor from './transact';
 import Consumer from './amqplib_compat/consumer';
 import { Channel } from 'amqplib';
 
@@ -111,7 +110,6 @@ export default class PeanarApp {
   protected consumers: Map<string, Consumer[]> = new Map;
   protected workers: Map<string, Worker[]> = new Map;
   protected jobs: Map<string, (...args: unknown[]) => Promise<unknown>> = new Map;
-  protected transactions: Set<PeanarTransactor> = new Set();
 
   public state: EAppState = EAppState.RUNNING;
 
@@ -134,15 +132,9 @@ export default class PeanarApp {
     // Anything that is subject to the timeout should go in here
     await Promise.all([
       // Wait a few seconds for running jobs to finish their work
-      ...[...this.workers.values()].flat().map(w => w.shutdown(timeout)),
-
-      // Also wait for pending transactions to be finalized
-      ...[...this.transactions].map(t => t.waitUntil(timeout).catch(() => {
-        this.log(`Transaction ${t.queueName} timed out while shutting down Peanar.`);
-      })),
+      ...Array.from(this.workers.values()).flat().map(w => w.shutdown(timeout)),
     ]);
     debug('shutdown(): workers shut down');
-    debug('shutdown(): transactions concluded');
 
     // Close the channel pool and then the amqp connection
     await this.broker.shutdown();
@@ -267,16 +259,6 @@ export default class PeanarApp {
     return res;
   }
 
-  protected _createTransactor(def: IPeanarJobDefinition) {
-    return () => {
-      const t = new PeanarTransactor(def, this);
-      this.transactions.add(t);
-      t.once('conclude', () => this.transactions.delete(t));
-
-      return t;
-    };
-  }
-
   protected _createDelayedEnqueuer(def: IPeanarJobDefinition) {
     return (...args: unknown[]) => {
       return this._publish(
@@ -307,7 +289,6 @@ export default class PeanarApp {
 
     enqueueJob.rpc = async (...args: unknown[]) => {};
     enqueueJob.delayed = this._createDelayedEnqueuer(def);
-    enqueueJob.transaction = this._createTransactor(def);
     enqueueJob.withPriority = this._createEnqueuerWithPriority(def);
     return enqueueJob;
   }
@@ -315,7 +296,7 @@ export default class PeanarApp {
   public job(def: IPeanarJobDefinitionInput) {
     if (def.max_priority && def.default_priority) {
       if (def.default_priority > def.max_priority) {
-        throw new Error('max_priority should be greater than or equeal to the default priority.');
+        throw new Error('max_priority should be greater than or equal to the default priority.');
       }
     } else if (def.default_priority) {
       def.max_priority = def.default_priority;
