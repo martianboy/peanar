@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "test": "npx mocha",
+    "test:coverage": "nyc --reporter=html --reporter=text mocha",
     "build": "npx tsc",
     "prepublishOnly": "npm run build"
   },
@@ -31,6 +32,7 @@
   },
   "homepage": "https://github.com/martianboy/peanar#readme",
   "devDependencies": {
+    "@istanbuljs/nyc-config-typescript": "^1.0.2",
     "@types/amqplib": "^0.10.7",
     "@types/chai": "^4.3.20",
     "@types/colors": "^1.2.1",
@@ -43,6 +45,7 @@
     "chai": "^4.5.0",
     "eslint": "^9.25.1",
     "mocha": "^11.1.0",
+    "nyc": "^17.1.0",
     "sinon": "^20.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
