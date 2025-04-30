@@ -2,7 +2,6 @@ import debugFn from 'debug';
 const debug = debugFn('peanar:worker');
 
 import util from 'util';
-import 'colors';
 
 import { Transform, TransformCallback } from 'stream';
 import PeanarApp, { IPeanarRequest, IPeanarJob } from './app';
@@ -73,7 +72,7 @@ export default class PeanarWorker extends Transform {
     this._channel = channel;
     this._channel.once('close', this.onChannelClosed);
     this.logger = options?.logger ?? ((msg: string) => {
-      debug(`${`PeanarWorker#${this.n}:`.bold} ${msg}`);
+      debug(`PeanarWorker#${this.n}: ${msg}`);
     });
   }
 
@@ -129,7 +128,7 @@ export default class PeanarWorker extends Transform {
   }
 
   public log(msg: string) {
-    return this.logger(`${`PeanarWorker#${this.n}:`.bold} ${msg}`);
+    return this.logger(`PeanarWorker#${this.n}: ${msg}`);
   }
 
   getJobDefinition(name: string) {
@@ -295,7 +294,7 @@ export default class PeanarWorker extends Transform {
 
     // @ts-ignore
     if (this._channel_lost) {
-      this.once("channelChanged", startProcessing);
+      this.once('channelChanged', startProcessing);
     } else {
       startProcessing();
     }
