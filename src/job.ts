@@ -12,7 +12,6 @@ export default class PeanarJob extends EventEmitter {
   public args: any[];
   public handler: (...args: any[]) => Promise<any>;
   public deliveryTag?: bigint;
-  public correlationId?: string;
   public channel: Channel;
   public app: PeanarApp;
   public def: IPeanarJobDefinition;
@@ -35,7 +34,6 @@ export default class PeanarJob extends EventEmitter {
     this.id = req.id;
     this.name = req.name;
     this.args = req.args;
-    this.correlationId = req.correlationId || req.id;
     this.deliveryTag = req.deliveryTag;
     this.attempt = req.attempt;
     this.max_retries = def.max_retries || 0;
@@ -120,7 +118,6 @@ export default class PeanarJob extends EventEmitter {
       args: this.args,
       name: this.name,
       attempt: 1,
-      correlationId: this.correlationId
     });
   }
 
@@ -177,7 +174,6 @@ export default class PeanarJob extends EventEmitter {
       args: this.args,
       name: this.name,
       attempt: this.attempt + 1,
-      correlationId: this.correlationId
     });
   }
 

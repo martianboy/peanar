@@ -18,7 +18,6 @@ export interface IPeanarJobDefinitionInput {
   name?: string;
   routingKey?: string;
   exchange?: string;
-  replyTo?: string;
   handler: (...args: any[]) => Promise<any>;
 
   jobClass?: typeof PeanarJob;
@@ -41,7 +40,6 @@ export interface IPeanarJobDefinition {
 
   routingKey: string;
   exchange?: string;
-  replyTo?: string;
 
   jobClass?: typeof PeanarJob;
 
@@ -61,7 +59,6 @@ export interface IPeanarRequest {
   name: string;
   args: any[];
   attempt: number;
-  correlationId?: string;
   deliveryTag?: bigint;
   priority?: number;
 }
@@ -181,10 +178,7 @@ export default class PeanarApp {
       throw new PeanarInternalError('PeanarApp::_publish() called while app is not in running state.');
     }
 
-    const properties: IBasicProperties = {
-      correlationId: req.correlationId,
-      replyTo: def.replyTo
-    };
+    const properties: IBasicProperties = {};
 
     if (typeof def.expires === 'number') {
       properties.expiration = def.expires.toString();
@@ -216,21 +210,6 @@ export default class PeanarApp {
     debug(`Peanar: enqueueJob(${def.queue}:${def.name}})`);
 
     return this._publish(def.routingKey, def.exchange, def, req);
-  }
-
-  protected async _enqueueJobResponse(job: PeanarJob, result: IWorkerResult) {
-    debug('Peanar: _enqueueJobResponse()')
-
-    if (!job.def.replyTo) throw new PeanarInternalError('PeanarApp::_enqueueJobResponse() called with no replyTo defined')
-
-    await this.broker.publish({
-      routing_key: job.def.replyTo,
-      exchange: '',
-      properties: {
-        correlationId: job.correlationId || job.id
-      },
-      body: this._prepareJobResponse(job, result)
-    });
   }
 
   protected _prepareJobRequest(name: string, args: any[]): IPeanarRequest {
@@ -287,7 +266,6 @@ export default class PeanarApp {
       return self.enqueueJobRequest(def, self._prepareJobRequest(def.name, args));
     }
 
-    enqueueJob.rpc = async (...args: unknown[]) => {};
     enqueueJob.delayed = this._createDelayedEnqueuer(def);
     enqueueJob.withPriority = this._createEnqueuerWithPriority(def);
     return enqueueJob;
@@ -352,12 +330,7 @@ export default class PeanarApp {
             this.log(result.error);
           }
 
-          if (result.job.def.replyTo) {
-            this._enqueueJobResponse(result.job, result).then(_ => cb(), ex => cb(ex));
-          }
-          else {
-            return cb();
-          }
+          return cb();
         }
       }));
   }
