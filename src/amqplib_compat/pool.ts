@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import debugFn from 'debug';
 import type { Channel } from 'amqplib';
+import { PeanarPoolError } from '../exceptions';
 const debug = debugFn('peanar:pool');
 
 type Releaser = () => void;
@@ -27,7 +28,7 @@ interface ChannelDispatcher {
 
 export class ChannelPool extends EventEmitter {
   private _conn: ChannelCreator;
-  private _size: number;
+  private _capacity: number;
   private _queue: ChannelDispatcher[] = [];
 
   private _pool: Channel[] = [];
@@ -36,11 +37,11 @@ export class ChannelPool extends EventEmitter {
 
   private _isOpen = false;
 
-  constructor(connection: ChannelCreator, size: number, private prefetch = 1) {
+  constructor(connection: ChannelCreator, capacity: number, private prefetch = 1) {
     super();
 
     this._conn = connection;
-    this._size = size;
+    this._capacity = capacity;
     this.prefetch = prefetch;
 
     this._conn.once('close', this.hardCleanUp);
@@ -57,17 +58,17 @@ export class ChannelPool extends EventEmitter {
   };
 
   hardCleanUp = () => {
-    debug('ChannelPool: hard cleanup');
+    debug('hard cleanup');
     this.softCleanUp();
 
     for (const { reject } of this._queue) {
-      reject(new Error('ChannelPool: Connection failed.'));
+      reject(new PeanarPoolError('ChannelPool: Connection failed.'));
     }
   };
 
   async *[Symbol.asyncIterator]() {
     if (!this._isOpen) {
-      throw new Error('ChannelPool: [Symbol.asyncIterator]() called before pool is open.');
+      throw new PeanarPoolError('[Symbol.asyncIterator]() called before pool is open.');
     }
 
     while (this._isOpen) {
@@ -86,8 +87,8 @@ export class ChannelPool extends EventEmitter {
   async open(): Promise<void> {
     this._isOpen = true;
 
-    debug('ChannelPool: initializing the pool');
-    for (let i = 0; i < this._size; i++) {
+    debug('initializing the pool');
+    for (let i = 0; i < this._capacity; i++) {
       this._pool.push(await this.openChannel());
     }
 
@@ -99,10 +100,10 @@ export class ChannelPool extends EventEmitter {
 
     this._conn.off('close', this.hardCleanUp);
 
-    debug('ChannelPool: awaiting complete pool release');
+    debug('awaiting complete pool release');
     await Promise.all(this._acquisitions.values());
 
-    debug('ChannelPool: closing all channels');
+    debug('closing all channels');
     if (this._isOpen) {
       this._isOpen = false;
       for (const ch of this._pool) {
@@ -113,15 +114,15 @@ export class ChannelPool extends EventEmitter {
     }
 
     this.emit('close');
-    debug('ChannelPool: pool closed successfully');
+    debug('pool closed successfully');
   }
 
   acquire(): Promise<ChannelWithReleaser> {
     if (!this._isOpen) {
-      throw new Error('ChannelPool: acquire() called before pool is open.');
+      throw new PeanarPoolError('acquire() called before pool is open.');
     }
 
-    debug('ChannelPool: acquire()');
+    debug('acquire()');
 
     const promise: Promise<ChannelWithReleaser> = new Promise((res, rej) =>
       this._queue.push({
@@ -132,11 +133,11 @@ export class ChannelPool extends EventEmitter {
 
     if (this._pool.length > 0) {
       debug(
-        `ChannelPool: ${this._pool.length} channels available in the pool. dispatch immediately`
+        `${this._pool.length} channels available in the pool. dispatch immediately`
       );
       this.dispatchChannels();
     } else {
-      debug('ChannelPool: no channels available in the pool. awaiting...');
+      debug('no channels available in the pool. awaiting...');
     }
 
     return promise;

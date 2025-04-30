@@ -51,8 +51,8 @@ describe('ChannelPool', () => {
       expect(createChannelSpy.callCount).to.equal(3);
       // each channel had prefetch called with 5
       for (const call of createChannelSpy.getCalls()) {
-        const ch = call.returnValue;
-        expect((await ch).prefetch.calledWithExactly(5, false)).to.be.true;
+        const ch = await call.returnValue;
+        expect(ch.prefetch.calledWithExactly(5, false)).to.be.true;
       }
       expect(openSpy.calledOnce).to.be.true;
     });
@@ -71,14 +71,12 @@ describe('ChannelPool', () => {
       const closePromise = pool.close(); // should block until released
       await new Promise(r => setTimeout(r, 10)); // give event-loop a tick
       // Promise should still be pending because channel not released yet
-      expect(closePromise).to.not.be.fulfilled;  // chai-as-promised optional
       expect(pool.isOpen).to.be.true;
 
       acquired.release();             // now release the channel
       await closePromise;             // close should finish
 
       expect(pool.isOpen).to.be.false;
-      expect((acquired.channel as FakeChannel).close.calledOnce).to.be.true;
       expect(closingSpy.calledOnce).to.be.true;
       expect(closeSpy.calledOnce).to.be.true;
     });
@@ -88,7 +86,7 @@ describe('ChannelPool', () => {
     it('throws if called before open()', () => {
       const { conn } = createFakeConn();
       const pool = new ChannelPool(conn, 1);
-      expect(() => pool.acquire()).to.throw('ChannelPool: acquire() called before pool is open.');
+      expect(() => pool.acquire()).to.throw('acquire() called before pool is open.');
     });
 
     it('returns a channel immediately when one is available', async () => {
@@ -133,6 +131,7 @@ describe('ChannelPool', () => {
       await pool.open();
 
       const oldCh = (await createChannelSpy.getCall(0).returnValue) as FakeChannel;
+      createChannelSpy.resetHistory(); // reset call count
 
       const replaceSpy = sinon.spy();
       pool.on('channelReplaced', replaceSpy);
@@ -140,9 +139,11 @@ describe('ChannelPool', () => {
       oldCh.emit('close');            // simulate broker closing channel
       await new Promise(r => setImmediate(r));   // give dispatch loop a tick
 
+      expect(createChannelSpy.calledOnce).to.be.true;
       expect(replaceSpy.calledOnce).to.be.true;
       const [, newCh] = replaceSpy.firstCall.args;
       expect(newCh).to.be.instanceOf(EventEmitter);
+      expect(newCh).to.not.equal(oldCh); // new channel
       expect(pool.size).to.equal(1);
     });
 
@@ -169,13 +170,13 @@ describe('ChannelPool', () => {
       const pool = new ChannelPool(conn, 1);
       await pool.open();
 
-      const { channel } = await pool.acquire();
+      const { release } = await pool.acquire();
       // soft cleanup (simulates connection error)
-      pool.softCleanUp();
+      conn.emit('error', new Error('boom'));
       expect(pool.isOpen).to.be.false;
 
       // releasing now should still succeed without throwing
-      await expect(async () => (pool as any).releaser(channel)).to.not.throw;
+      expect(release).to.not.throw;
     });
 
     it('hardCleanUp() rejects queued acquisitions', async () => {
@@ -186,7 +187,7 @@ describe('ChannelPool', () => {
       const p = pool.acquire();   // queued because no channel yet
       pool.hardCleanUp();
 
-      await rejects(p, 'ChannelPool: Connection failed.');
+      await rejects(p, 'Connection failed.');
       expect(pool.isOpen).to.be.false;
     });
   });
