@@ -161,7 +161,7 @@ export class ChannelPool extends EventEmitter {
 
     const idx = this._pool.indexOf(ch);
     if (this._isOpen) {
-      let newCh = undefined
+      let newCh: Channel | undefined = undefined;
       try {
         newCh = await this.openChannel();
         this.emit('channelReplaced', ch, newCh);
