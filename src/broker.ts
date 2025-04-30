@@ -1,14 +1,15 @@
 import debugFn from 'debug';
 const debug = debugFn('peanar:broker');
 
-import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
-import { Connection } from 'ts-amqp';
-import ChannelPool from 'ts-amqp/dist/classes/ChannelPool';
+import amqplib, { ChannelModel, ConsumeMessage, Replies, Channel } from 'amqplib';
+
+import { ChannelPool } from './pool';
 import { PeanarAdapterError } from './exceptions';
-import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
-import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
-import { ICloseReason } from 'ts-amqp/dist/interfaces/Protocol';
 import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
+import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
+import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
+import Consumer from './consumer';
+import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 
 interface IBrokerOptions {
   connection?: IConnectionParams;
@@ -16,13 +17,21 @@ interface IBrokerOptions {
   prefetch?: number;
 }
 
+function timeout(ms: number) {
+  return new Promise(res => {
+    setTimeout(res, ms)
+  })
+}
+
 /**
  * Peanar's broker adapter
  */
-export default class PeanarBroker {
+export default class NodeAmqpBroker {
   private config: IBrokerOptions;
-  private conn?: Connection;
-  private _connectPromise?: Promise<void>;
+  private conn?: ChannelModel;
+  private _connectPromise?: Promise<ChannelModel>;
+
+  private _channelConsumers = new Map<Channel, Set<Consumer>>();
 
   public pool?: ChannelPool;
 
@@ -30,21 +39,29 @@ export default class PeanarBroker {
     this.config = config
   }
 
-  private _connect = async () => {
-    debug('_connect()');
+  private async _connectAmqp(retry = 1): Promise<ChannelModel> {
+    debug(`_connectAmqp(${retry})`)
+    try {
+      const c = this.config || {};
 
-    const conn = (this.conn = new Connection(this.config.connection));
-    this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
+      const conn = (this.conn = await amqplib.connect({
+        hostname: c.connection ? c.connection.host : 'localhost',
+        port: c.connection ? c.connection.port : 5672,
+        username: c.connection ? c.connection.username : 'guest',
+        password: c.connection ? c.connection.password : 'guest',
+        vhost: c.connection ? c.connection.vhost : '/'
+      }));
 
-    await conn.start();
-    await this.pool.open();
-
-    conn.once('close', (err?: ICloseReason) => {
-      this._connectPromise = undefined;
-      if (err && err.reply_code >= 400) {
-        this.connect()
+      return conn
+    } catch (ex: any) {
+      if (ex.code === 'ECONNREFUSED') {
+        await timeout(700 * retry);
+        return this._connectAmqp(retry + 1);
+      } else {
+        console.error(ex);
+        throw ex;
       }
-    });
+    }
   }
 
   /**
@@ -53,7 +70,60 @@ export default class PeanarBroker {
   public connect = async () => {
     if (this._connectPromise) return this._connectPromise;
 
-    return (this._connectPromise = this._connect());
+    const doConnect = async () => {
+      debug('doConnect()');
+
+      const conn = await this._connectAmqp();
+
+      this.pool = new ChannelPool(conn, this.config.poolSize, this.config.prefetch);
+      await this.pool.open();
+
+      if (this._channelConsumers.size > 0) {
+        await this.resurrectAllConsumers();
+      }
+
+      this.pool.on('channelLost', (ch) => {
+        this.pauseConsumersOnChannel(ch);
+      });
+      this.pool.on('channelReplaced', (ch, newCh) => {
+        this.rewireConsumersOnChannel(ch, newCh).catch(ex => {
+          console.error(ex);
+        });
+      });
+
+      conn.on('error', ex => {
+        debug(`AMQP connection error ${ex.code}!`);
+        debug(`Original error message: ${ex.message}`);
+      });
+
+      conn.once('close', (err?: any) => {
+        if (err) {
+          debug(err.message);
+        } else {
+          debug('AMQP connection closed.');
+        }
+
+        this._connectPromise = undefined;
+        if (err && err.code >= 300) {
+          this.connect();
+        } else {
+          this.pool!.close();
+          this.pool = undefined;
+        }
+      });
+
+      return conn;
+    }
+
+    return (this._connectPromise = doConnect());
+  }
+
+  ready() {
+    if (!this._connectPromise) {
+      throw new PeanarAdapterError('Not connected!');
+    }
+
+    return this._connectPromise;
   }
 
   public async shutdown() {
@@ -62,14 +132,16 @@ export default class PeanarBroker {
     if (this.pool) {
       await this.pool.close();
       this.pool = undefined;
-      debug('pool closed.')
+      debug('pool closed.');
     }
 
     if (this.conn) {
       this.conn.off('close', this.connect);
       await this.conn.close();
+      this._connectPromise = undefined;
+      this._channelConsumers.clear();
       this.conn = undefined;
-      debug('connection closed.')
+      debug('connection closed.');
     }
   }
 
@@ -78,7 +150,12 @@ export default class PeanarBroker {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return await Promise.all(this.pool.mapOver(queues, async (ch, queue) => {
-      return ch.declareQueue(queue);
+      return ch.assertQueue(queue.name, {
+        durable: queue.durable,
+        autoDelete: queue.auto_delete,
+        exclusive: queue.exclusive,
+        ...queue.arguments
+      });
     }));
   }
 
@@ -87,7 +164,10 @@ export default class PeanarBroker {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return await Promise.all(this.pool.mapOver(exchanges, async (ch, exchange) => {
-      return ch.declareExchange(exchange);
+      return ch.assertExchange(exchange.name, exchange.type, {
+        durable: exchange.durable,
+        ...exchange.arguments
+      });
     }));
   }
 
@@ -96,14 +176,68 @@ export default class PeanarBroker {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
     return await Promise.all(this.pool.mapOver(bindings, async (ch, binding) => {
-      return ch.bindQueue(binding);
+      return ch.bindQueue(binding.queue, binding.exchange, binding.routing_key);
     }));
   }
 
-  public consume(queue: string) {
+  private async resurrectAllConsumers() {
+    await Promise.all(this.pool!.mapOver([...this._channelConsumers.keys()], (newCh, oldCh) => this.rewireConsumersOnChannel(oldCh, newCh)))
+  }
+
+  private pauseConsumersOnChannel(ch: Channel) {
+    const set = this._channelConsumers.get(ch);
+    if (!set || set.size < 1) return;
+
+    for (const consumer of set) {
+      consumer.pause();
+    }
+  }
+
+  private async rewireConsumersOnChannel(ch: Channel, newCh: Channel) {
+    const set = this._channelConsumers.get(ch);
+    if (!set || set.size < 1) return;
+
+    for (const consumer of set) {
+      const res = await newCh.consume(consumer.queue, (msg: ConsumeMessage | null) => {
+        if (msg && consumer) {
+          consumer.handleDelivery(msg);
+        }
+      });
+
+      consumer.tag = res.consumerTag;
+      consumer.channel = newCh;
+      consumer.resume();
+    }
+
+    this._channelConsumers.delete(ch);
+    this._channelConsumers.set(newCh, set);
+  }
+
+  private async _startConsumer(ch: Channel, queue: string): Promise<Consumer> {
+    let consumer = new Consumer(ch, queue);
+
+    return await ch.consume(queue, (msg: ConsumeMessage | null) => {
+      if (msg) {
+        consumer.handleDelivery(msg);
+      }
+    }).then((res: Replies.Consume) => {
+      consumer.tag = res.consumerTag;
+
+      if (!this._channelConsumers.has(ch)) {
+        this._channelConsumers.set(ch, new Set([consumer]));
+      } else {
+        const set = this._channelConsumers.get(ch);
+        set!.add(consumer);
+      }
+
+      return consumer;
+    });
+  }
+
+  public consume(queue: string): PromiseLike<Consumer> {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    return this.pool.acquireAndRun(ch => ch.basicConsume(queue));
+    return this.pool.acquireAndRun(async ch => this._startConsumer(ch, queue));
   }
 
   public consumeOver(queues: string[]) {
@@ -112,30 +246,64 @@ export default class PeanarBroker {
     return this.pool.mapOver(queues, async (ch, queue) => {
       return {
         queue,
-        consumer: await ch.basicConsume(queue)
+        channel: ch,
+        consumer: await this._startConsumer(ch, queue)
       };
     });
   }
 
+  /**
+   * This method will always try to make a connection
+   * unless `this.pool` is empty. Call with care.
+   */
   public async publish(message: IMessage<unknown>) {
     await this.connect();
-    if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    const { channel, release } = await this.pool.acquire();
-    debug(`publish to channel ${channel.channelNumber}`);
-    if (channel.basicPublishJson(
-      message.exchange || '',
-      message.routing_key,
-      message.properties,
-      message.body,
-      message.mandatory,
-      message.immediate
-    )) {
-      release();
-      return true;
-    } else {
-      channel.once('drain', release);
-      return false;
+    const _doAcquire = async (): Promise<{
+      release: () => void;
+      channel: Channel;
+    }> => {
+      if (!this.pool) throw new PeanarAdapterError('Not connected!');
+
+      try {
+        return await this.pool.acquire();
+      } catch (ex: any) {
+        await this.connect();
+        return _doAcquire();
+      }
     }
+
+    const _doPublish = async (): Promise<boolean> => {
+      const { channel, release } = await _doAcquire()
+      debug(`publish to channel`);
+
+      try {
+        if (channel.publish(
+          message.exchange || '',
+          message.routing_key,
+          Buffer.from(JSON.stringify(message.body)),
+          {
+            contentType: 'application/json',
+            mandatory: message.mandatory,
+            persistent: true,
+            priority: message.properties?.priority
+          }
+        )) {
+          release();
+          return true;
+        } else {
+          channel.once('drain', release);
+          return false;
+        }
+      } catch (ex: any) {
+        if (ex.message === 'Channel closed') {
+          return _doPublish();
+        }
+
+        throw ex;
+      }
+    };
+
+    return _doPublish();
   }
 }

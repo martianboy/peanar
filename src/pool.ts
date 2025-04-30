@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import debugFn from 'debug';
 import type { Channel } from 'amqplib';
-import { PeanarPoolError } from '../exceptions';
+import { PeanarPoolError } from './exceptions';
 const debug = debugFn('peanar:pool');
 
 type Releaser = () => void;

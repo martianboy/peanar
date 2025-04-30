@@ -3,14 +3,14 @@ import debugFn from 'debug';
 const debug = debugFn('peanar:app');
 
 import { PeanarInternalError } from './exceptions';
-import Broker from './amqplib_compat/broker';
+import Broker from './broker';
 import Worker, { IWorkerResult } from './worker';
 import PeanarJob from './job';
 import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
 import { Writable, TransformCallback } from 'stream';
 import { IBasicProperties } from 'ts-amqp/dist/interfaces/Protocol';
 import Registry from './registry';
-import Consumer from './amqplib_compat/consumer';
+import Consumer from './consumer';
 import { Channel } from 'amqplib';
 
 export interface IPeanarJobDefinitionInput {
