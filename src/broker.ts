@@ -7,7 +7,7 @@ import { ChannelPool } from './pool';
 import { PeanarAdapterError } from './exceptions';
 import Consumer from './consumer';
 
-interface IConnectionParams {
+export interface IConnectionParams {
   maxRetries: number;
   retryDelay: number;
   host: string;
@@ -23,6 +23,7 @@ interface IConnectionParams {
 
 interface IBrokerOptions {
   connection?: IConnectionParams;
+  socketOptions?: any;
   poolSize: number;
   prefetch?: number;
 }
@@ -121,7 +122,7 @@ export default class NodeAmqpBroker {
         username: c.connection ? c.connection.username : 'guest',
         password: c.connection ? c.connection.password : 'guest',
         vhost: c.connection ? c.connection.vhost : '/'
-      }));
+      }, this.config.socketOptions));
 
       return conn
     } catch (ex: any) {

@@ -3,39 +3,122 @@ on: push
 
 jobs:
   # Label of the container job
-  container-job:
+  test:
     # Containers must run in Linux based operating systems
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Define the matrix dimensions
+        ssl: [false, true]
+        node-version: ['18'] # Keep node version in matrix if needed, or move out if static
     # Docker Hub image that `container-job` executes in
-    container: node:18
-
-    # Service containers to run with `container-job`
-    services:
-      # Label used to access the service container
-      rabbitmq:
-        # Docker Hub image
-        image: rabbitmq:3-management
-        # Set health checks to wait until redis has started
-        options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
-          --health-interval 30s
-          --health-timeout 30s
-          --health-retries 5
+    container: node:${{ matrix.node-version }}
 
     steps:
       # Downloads a copy of the code in your repository before running CI tests
       - name: Check out repository code
-        uses: actions/checkout@master
-      - name: Use Node.js v18
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
+        uses: actions/checkout@v4 # Use specific version
+
+      # No setup-node needed if running in a node container already
+      # - name: Use Node.js ${{ matrix.node-version }}
+      #   uses: actions/setup-node@v4 # Use specific version
+      #   with:
+      #     node-version: ${{ matrix.node-version }}
 
       - name: Install dependencies
         run: npm install
 
-      - name: Run the test suite
+      - name: Generate SSL Certificates
+        if: matrix.ssl == true
+        id: generate_certs
+        run: |
+          CERT_DIR=${{ runner.temp }}/certs
+          mkdir -p $CERT_DIR
+          cd $CERT_DIR
+
+          # Generate CA
+          openssl genrsa -out ca_key.pem 2048
+          openssl req -new -x509 -days 365 -key ca_key.pem -out ca_certificate.pem -subj "/C=US/ST=Test/L=Test/O=Test CA/CN=testca.com"
+
+          # Generate Server Cert
+          openssl genrsa -out server_key.pem 2048
+          openssl req -new -key server_key.pem -out server_csr.pem -subj "/C=US/ST=Test/L=Test/O=Test Server/CN=rabbitmq"
+          openssl x509 -req -days 365 -in server_csr.pem -CA ca_certificate.pem -CAkey ca_key.pem -CAcreateserial -out server_certificate.pem
+
+          # Generate Client Cert
+          openssl genrsa -out client_key.pem 2048
+          openssl req -new -key client_key.pem -out client_csr.pem -subj "/C=US/ST=Test/L=Test/O=Test Client/CN=testclient"
+          openssl x509 -req -days 365 -in client_csr.pem -CA ca_certificate.pem -CAkey ca_key.pem -CAcreateserial -out client_certificate.pem
+
+          # Set output for cert path
+          echo "cert_path=$CERT_DIR" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Start RabbitMQ (No SSL)
+        if: matrix.ssl == false
+        run: |
+          docker run -d --name rabbitmq \
+            -p 127.0.0.1:5672:5672 \
+            -p 127.0.0.1:15672:15672 \
+            --hostname rabbitmq \
+            --health-cmd "rabbitmq-diagnostics -q ping" \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 10 \
+            rabbitmq:3-management
+        shell: bash
+
+      - name: Start RabbitMQ (SSL)
+        if: matrix.ssl == true
+        run: |
+          docker run -d --name rabbitmq \
+            -p 127.0.0.1:5671:5671 \
+            -p 127.0.0.1:15671:15671 \
+            --hostname rabbitmq \
+            -v ${{ steps.generate_certs.outputs.cert_path }}:/etc/rabbitmq/ssl:ro \
+            -e RABBITMQ_SSL_CACERTFILE=/etc/rabbitmq/ssl/ca_certificate.pem \
+            -e RABBITMQ_SSL_CERTFILE=/etc/rabbitmq/ssl/server_certificate.pem \
+            -e RABBITMQ_SSL_KEYFILE=/etc/rabbitmq/ssl/server_key.pem \
+            -e RABBITMQ_SSL_VERIFY=verify_peer \
+            -e RABBITMQ_SSL_FAIL_IF_NO_PEER_CERT=false \
+            -e RABBITMQ_MANAGEMENT_SSL_CACERTFILE=/etc/rabbitmq/ssl/ca_certificate.pem \
+            -e RABBITMQ_MANAGEMENT_SSL_CERTFILE=/etc/rabbitmq/ssl/server_certificate.pem \
+            -e RABBITMQ_MANAGEMENT_SSL_KEYFILE=/etc/rabbitmq/ssl/server_key.pem \
+            -e RABBITMQ_MANAGEMENT_SSL_ENABLED=true \
+            --health-cmd "rabbitmq-diagnostics -q ping" \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 10 \
+            rabbitmq:3-management
+        shell: bash
+
+      - name: Wait for RabbitMQ
+        run: |
+          echo "Waiting for RabbitMQ..."
+          # Loop until the health check passes or timeout
+          for i in {1..30}; do
+            if docker inspect --format='{{.State.Health.Status}}' rabbitmq | grep -q 'healthy'; then
+              echo "RabbitMQ is healthy!"
+              exit 0
+            fi
+            echo -n "."
+            sleep 1
+          done
+          echo "RabbitMQ did not become healthy in time."
+          docker logs rabbitmq
+          exit 1
+        shell: bash
+
+      - name: Run the test suite (SSL=${{ matrix.ssl }})
         run: npm run test:e2e
         env:
-          RABBITMQ_HOST: rabbitmq
-          RABBITMQ_PORT: 5672
+          RABBITMQ_HOST: localhost # Connect to localhost as docker ports are mapped
+          RABBITMQ_PORT: ${{ matrix.ssl && '5671' || '5672' }}
+          RABBITMQ_USE_SSL: ${{ matrix.ssl }}
+          # Pass certificate paths for SSL mode
+          RABBITMQ_CA_PATH: ${{ matrix.ssl && format('{0}/certs/ca_certificate.pem', runner.temp) || '' }}
+          RABBITMQ_CLIENT_CERT_PATH: ${{ matrix.ssl && format('{0}/certs/client_certificate.pem', runner.temp) || '' }}
+          RABBITMQ_CLIENT_KEY_PATH: ${{ matrix.ssl && format('{0}/certs/client_key.pem', runner.temp) || '' }}
+          # Adjust based on test suite requirements for peer verification
+          RABBITMQ_SSL_VERIFY_PEER: ${{ matrix.ssl }}
+          RABBITMQ_SSL_FAIL_IF_NO_PEER_CERT: false # Match server config
