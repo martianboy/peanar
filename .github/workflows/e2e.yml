@@ -63,12 +63,14 @@ jobs:
       run: |
         if [ "${{ matrix.mode }}" = "ssl" ]; then
           docker run -d --name rabbitmq \
+            --user rabbitmq \
             -p 5671:5671 -p 15672:15672 \
             -v "$PWD/certs:/certs:ro" \
             -v "$PWD/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro" \
             rabbitmq:3-management
         else
           docker run -d --name rabbitmq \
+            --user rabbitmq \
             -p 5672:5672 -p 15672:15672 \
             rabbitmq:3-management
         fi
