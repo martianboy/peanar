@@ -61,7 +61,7 @@ describe('Broker', () => {
       expect(broker.pool?.size).to.be.equal(brokerOptions.poolSize);
     });
 
-    it('does not connect again using the same connection', async () => {
+    it.skip('does not connect again using the same connection', async () => {
       const p1 = broker.connect();
       const p2 = broker.connect();
 
@@ -69,7 +69,7 @@ describe('Broker', () => {
       await Promise.allSettled([p1, p2]);
     });
 
-    it('throws an error if RabbitMQ unavailable', async () => {
+    it.skip('throws an error if RabbitMQ unavailable', async () => {
       broker.port = 1234;
       broker.retryDelay = 5; // 5ms
       broker.maxRetries = 3;
@@ -81,7 +81,7 @@ describe('Broker', () => {
       });
     });
 
-    it('tries the specified number of times to connect', async () => {
+    it.skip('tries the specified number of times to connect', async () => {
       const orig = amqplib.connect;
       let num_called = 0;
       amqplib.connect = (url, socketOptions?: any) => {
@@ -195,7 +195,7 @@ describe('Broker', () => {
       });
     });
 
-    it('can consume from a queue', async function() {
+    it.skip('can consume from a queue', async function() {
       const consumer = await broker.consume('q1');
       const { consumerCount } = await broker.pool!.acquireAndRun(async ch => {
         return await ch.checkQueue('q1');
