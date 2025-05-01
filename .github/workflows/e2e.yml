@@ -3,67 +3,69 @@ on: [push]
 
 jobs:
   test:
-    # we need Docker, so use a normal runner – not a job-level container
     runs-on: ubuntu-latest
 
-    # Run both variants in parallel
     strategy:
-      fail-fast: false
       matrix:
         mode: [nossl, ssl]
+      fail-fast: false
 
-    # These two helpers let us keep the YAML readable
+    # Convenience vars shared by all steps
     env:
       RABBITMQ_HOST: localhost
       RABBITMQ_PORT: ${{ matrix.mode == 'ssl' && 5671 || 5672 }}
 
     steps:
-    # 1--- Checkout & Node
+    # 1 — code + Node
     - uses: actions/checkout@v4
+    - uses: actions/setup-node@v3
+      with: { node-version: 18 }
 
-    - name: Use Node 18
-      uses: actions/setup-node@v3
-      with:
-        node-version: 18
-
-    # 2--- (SSL only) generate a tiny PKI
-    - name: Generate self-signed certs (SSL matrix only)
+    # 2 — SSL branch: generate certs **and** a rabbitmq.conf
+    - name: Generate certs + config (SSL only)
       if: matrix.mode == 'ssl'
       run: |
         mkdir -p certs
 
-        # Root CA
-        openssl req -x509 -nodes -days 1 \
-          -newkey rsa:4096 -keyout certs/ca.key -out certs/ca.crt \
+        # ----  certificates  --------------------------------------------------
+        openssl req -x509 -nodes -newkey rsa:4096 -days 1 \
+          -keyout certs/ca.key    -out certs/ca.crt \
           -subj "/CN=Peanar-Test-CA"
 
-        # Server cert (CN=rabbitmq)
         openssl req -nodes -newkey rsa:4096 \
           -keyout certs/server.key -out certs/server.csr \
           -subj "/CN=rabbitmq"
         openssl x509 -req -in certs/server.csr -CA certs/ca.crt -CAkey certs/ca.key \
           -CAcreateserial -days 1 -out certs/server.crt
 
-        # Client cert (for the test process)
         openssl req -nodes -newkey rsa:4096 \
           -keyout certs/client.key -out certs/client.csr \
           -subj "/CN=peanar-client"
         openssl x509 -req -in certs/client.csr -CA certs/ca.crt -CAkey certs/ca.key \
           -CAcreateserial -days 1 -out certs/client.crt
 
-    # 3--- Start RabbitMQ tailored to the current matrix row
+        # ----  RabbitMQ config  ----------------------------------------------
+        cat > rabbitmq.conf <<'EOF'
+        ## disable insecure listener
+        listeners.tcp = none
+        ## TLS listener
+        listeners.ssl.default = 5671
+
+        ssl_options.cacertfile  = /certs/ca.crt
+        ssl_options.certfile    = /certs/server.crt
+        ssl_options.keyfile     = /certs/server.key
+        ssl_options.verify      = verify_none
+        ssl_options.fail_if_no_peer_cert = false
+        EOF
+
+    # 3 — Start broker (mount config if SSL)
     - name: Start RabbitMQ
       run: |
         if [ "${{ matrix.mode }}" = "ssl" ]; then
           docker run -d --name rabbitmq \
             -p 5671:5671 -p 15672:15672 \
             -v "$PWD/certs:/certs:ro" \
-            -e RABBITMQ_SSL_CACERTFILE=/certs/ca.crt \
-            -e RABBITMQ_SSL_CERTFILE=/certs/server.crt \
-            -e RABBITMQ_SSL_KEYFILE=/certs/server.key \
-            -e RABBITMQ_SSL_VERIFY=verify_none \
-            -e RABBITMQ_SSL_FAIL_IF_NO_PEER_CERT=false \
-            -e RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS='-rabbit ssl_listeners [{"0.0.0.0",5671}]' \
+            -v "$PWD/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro" \
             rabbitmq:3-management
         else
           docker run -d --name rabbitmq \
@@ -71,16 +73,15 @@ jobs:
             rabbitmq:3-management
         fi
 
-    # 4--- Wait until the broker answers `rabbitmq-diagnostics ping`
-    - name: Wait for broker to become healthy
+    # 4 — Wait for health-check
+    - name: Wait for broker
       run: |
         for i in {1..30}; do
-          if docker exec rabbitmq rabbitmq-diagnostics -q ping 2>/dev/null; then
-            echo "RabbitMQ is ready"; exit 0
-          fi
+          docker exec rabbitmq rabbitmq-diagnostics -q ping && exit 0
           sleep 2
         done
-        echo "RabbitMQ never became healthy"; docker logs rabbitmq; exit 1
+        docker logs rabbitmq
+        exit 1
 
     # 5--- Install deps & run tests
     - run: npm ci
