@@ -27,11 +27,11 @@ function timeout(ms: number) {
  * Peanar's broker adapter
  */
 export default class NodeAmqpBroker {
-  private config: IBrokerOptions;
-  private conn?: ChannelModel;
-  private _connectPromise?: Promise<ChannelModel>;
+  protected config: IBrokerOptions;
+  protected conn?: ChannelModel;
+  protected _connectPromise?: Promise<ChannelModel>;
 
-  private _channelConsumers = new Map<Channel, Set<Consumer>>();
+  protected _channelConsumers = new Map<Channel, Set<Consumer>>();
 
   public pool?: ChannelPool;
 
@@ -39,7 +39,7 @@ export default class NodeAmqpBroker {
     this.config = config
   }
 
-  private async _connectAmqp(retry = 1): Promise<ChannelModel> {
+  protected async _connectAmqp(retry = 1): Promise<ChannelModel> {
     debug(`_connectAmqp(${retry})`)
     try {
       const c = this.config || {};

@@ -1,0 +1,17 @@
+version: '2'
+services:
+  test:
+    image: node:18
+    working_dir: /app
+    volumes:
+      - .:/app
+    command:
+      sh -c "node /app/test/bin/wait-for-rabbit.js && npx mocha --config .mocharc.e2e.json --timeout 2000 --exit"
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      DEBUG: docker
+    links:
+      - rabbitmq
+  rabbitmq:
+    image: rabbitmq:3-management
