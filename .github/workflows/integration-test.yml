@@ -85,6 +85,8 @@ jobs:
           sleep 2
         done
         docker logs rabbitmq-${{ matrix.mode}}
+        docker exec rabbitmq-${{ matrix.mode}} whoami
+        docker exec rabbitmq-${{ matrix.mode}} ls -lah /
         exit 1
 
     # 5--- Install deps & run tests
