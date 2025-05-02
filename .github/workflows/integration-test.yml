@@ -84,7 +84,6 @@ jobs:
           docker exec rabbitmq-${{ matrix.mode}} rabbitmq-diagnostics -q ping && exit 0
           sleep 2
         done
-        docker exec rabbitmq-${{ matrix.mode}} ls /certs
         docker logs rabbitmq-${{ matrix.mode}}
         exit 1
 
