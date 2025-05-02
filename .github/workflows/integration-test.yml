@@ -63,7 +63,6 @@ jobs:
       run: |
         if [ "${{ matrix.mode }}" = "ssl" ]; then
           docker run -d --name rabbitmq-${{ matrix.mode}} \
-            --user rabbitmq \
             -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
             -p 5671:5671 -p 15671:15672 \
             -v "$PWD/certs:/certs" \
@@ -80,12 +79,9 @@ jobs:
     # 4 — Wait for health-check
     - name: Wait for broker
       run: |
-        docker exec rabbitmq-${{ matrix.mode}} whoami
-        docker exec rabbitmq-${{ matrix.mode}} ls -lah /certs
-        docker exec rabbitmq-${{ matrix.mode}} ls -lah /etc/rabbitmq/rabbitmq.conf
-        for i in {1..5}; do
+        for i in {1..15}; do
           docker exec rabbitmq-${{ matrix.mode}} rabbitmq-diagnostics -q ping && exit 0
-          sleep 2
+          sleep 3
         done
         docker logs rabbitmq-${{ matrix.mode}}
         exit 1
