@@ -62,16 +62,15 @@ jobs:
     - name: Start RabbitMQ
       run: |
         if [ "${{ matrix.mode }}" = "ssl" ]; then
-          ls certs
-          docker run -d --name rabbitmq \
+          docker run -d --name rabbitmq-${{ matrix.mode}} \
             --user rabbitmq \
             -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
-            -p 5671:5671 -p 15672:15672 \
+            -p 5671:5671 -p 15671:15672 \
             -v "$PWD/certs:/certs" \
             -v "$PWD/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf" \
             rabbitmq:3-management
         else
-          docker run -d --name rabbitmq \
+          docker run -d --name rabbitmq-${{ matrix.mode}} \
             --user rabbitmq \
             -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
             -p 5672:5672 -p 15672:15672 \
@@ -82,11 +81,11 @@ jobs:
     - name: Wait for broker
       run: |
         for i in {1..5}; do
-          docker exec rabbitmq rabbitmq-diagnostics -q ping && exit 0
+          docker exec rabbitmq-${{ matrix.mode}} rabbitmq-diagnostics -q ping && exit 0
           sleep 2
         done
-        docker exec rabbitmq ls /certs
-        docker logs rabbitmq
+        docker exec rabbitmq-${{ matrix.mode}} ls /certs
+        docker logs rabbitmq-${{ matrix.mode}}
         exit 1
 
     # 5--- Install deps & run tests
