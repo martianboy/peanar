@@ -68,7 +68,7 @@ jobs:
             --user rabbitmq \
             -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
             -p 5671:5671 -p 15672:15672 \
-            -v "$PWD/certs:/certs:ro" \
+            -v "$PWD/certs:/certs" \
             -v "$PWD/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf" \
             rabbitmq:3-management
         else
