@@ -44,8 +44,6 @@ jobs:
         openssl x509 -req -in certs/client.csr -CA certs/ca.crt -CAkey certs/ca.key \
           -CAcreateserial -days 1 -out certs/client.crt
 
-        ls certs
-
         # ----  RabbitMQ config  ----------------------------------------------
         cat > rabbitmq.conf <<'EOF'
         ## disable insecure listener
@@ -64,6 +62,7 @@ jobs:
     - name: Start RabbitMQ
       run: |
         if [ "${{ matrix.mode }}" = "ssl" ]; then
+          ls certs
           docker run -d --name rabbitmq \
             --user rabbitmq \
             -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
