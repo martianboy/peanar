@@ -2,7 +2,7 @@ name: Run E2E Tests
 on: [push]
 
 jobs:
-  test:
+  integration_test:
     runs-on: ubuntu-latest
 
     strategy:
@@ -63,12 +63,16 @@ jobs:
       run: |
         if [ "${{ matrix.mode }}" = "ssl" ]; then
           docker run -d --name rabbitmq \
+            --user rabbitmq \
+            -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
             -p 5671:5671 -p 15672:15672 \
             -v "$PWD/certs:/certs:ro" \
             -v "$PWD/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf" \
             rabbitmq:3-management
         else
           docker run -d --name rabbitmq \
+            --user rabbitmq \
+            -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
             -p 5672:5672 -p 15672:15672 \
             rabbitmq:3-management
         fi
@@ -76,7 +80,7 @@ jobs:
     # 4 — Wait for health-check
     - name: Wait for broker
       run: |
-        for i in {1..30}; do
+        for i in {1..5}; do
           docker exec rabbitmq rabbitmq-diagnostics -q ping && exit 0
           sleep 2
         done
