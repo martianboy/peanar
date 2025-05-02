@@ -29,20 +29,22 @@ jobs:
 
         # ----  certificates  --------------------------------------------------
         openssl req -x509 -nodes -newkey rsa:4096 -days 1 \
-          -keyout /certs/ca.key    -out /certs/ca.crt \
+          -keyout certs/ca.key    -out certs/ca.crt \
           -subj "/CN=Peanar-Test-CA"
 
         openssl req -nodes -newkey rsa:4096 \
-          -keyout /certs/server.key -out /certs/server.csr \
+          -keyout certs/server.key -out certs/server.csr \
           -subj "/CN=rabbitmq"
-        openssl x509 -req -in /certs/server.csr -CA /certs/ca.crt -CAkey /certs/ca.key \
-          -CAcreateserial -days 1 -out /certs/server.crt
+        openssl x509 -req -in certs/server.csr -CA certs/ca.crt -CAkey certs/ca.key \
+          -CAcreateserial -days 1 -out certs/server.crt
 
         openssl req -nodes -newkey rsa:4096 \
-          -keyout /certs/client.key -out /certs/client.csr \
+          -keyout certs/client.key -out certs/client.csr \
           -subj "/CN=peanar-client"
-        openssl x509 -req -in /certs/client.csr -CA /certs/ca.crt -CAkey /certs/ca.key \
-          -CAcreateserial -days 1 -out /certs/client.crt
+        openssl x509 -req -in certs/client.csr -CA certs/ca.crt -CAkey certs/ca.key \
+          -CAcreateserial -days 1 -out certs/client.crt
+
+        ls certs
 
         # ----  RabbitMQ config  ----------------------------------------------
         cat > rabbitmq.conf <<'EOF'
@@ -84,6 +86,7 @@ jobs:
           docker exec rabbitmq rabbitmq-diagnostics -q ping && exit 0
           sleep 2
         done
+        docker exec rabbitmq ls /certs
         docker logs rabbitmq
         exit 1
 
