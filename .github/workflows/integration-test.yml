@@ -81,7 +81,8 @@ jobs:
     - name: Wait for broker
       run: |
         docker exec rabbitmq-${{ matrix.mode}} whoami
-        docker exec rabbitmq-${{ matrix.mode}} ls -lah /
+        docker exec rabbitmq-${{ matrix.mode}} ls -lah /certs
+        docker exec rabbitmq-${{ matrix.mode}} ls -lah /etc/rabbitmq/rabbitmq.conf
         for i in {1..5}; do
           docker exec rabbitmq-${{ matrix.mode}} rabbitmq-diagnostics -q ping && exit 0
           sleep 2
