@@ -80,13 +80,13 @@ jobs:
     # 4 — Wait for health-check
     - name: Wait for broker
       run: |
+        docker exec rabbitmq-${{ matrix.mode}} whoami
+        docker exec rabbitmq-${{ matrix.mode}} ls -lah /
         for i in {1..5}; do
           docker exec rabbitmq-${{ matrix.mode}} rabbitmq-diagnostics -q ping && exit 0
           sleep 2
         done
         docker logs rabbitmq-${{ matrix.mode}}
-        docker exec rabbitmq-${{ matrix.mode}} whoami
-        docker exec rabbitmq-${{ matrix.mode}} ls -lah /
         exit 1
 
     # 5--- Install deps & run tests
