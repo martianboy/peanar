@@ -5,11 +5,21 @@ import amqplib, { ChannelModel, ConsumeMessage, Replies, Channel } from 'amqplib
 
 import { ChannelPool } from './pool';
 import { PeanarAdapterError } from './exceptions';
-import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
-import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
-import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
 import Consumer from './consumer';
-import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
+
+interface IConnectionParams {
+  maxRetries: number;
+  retryDelay: number;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  locale: string;
+  keepAlive?: boolean;
+  keepAliveDelay?: number;
+  timeout?: number;
+  vhost: string;
+}
 
 interface IBrokerOptions {
   connection?: IConnectionParams;
@@ -17,6 +27,67 @@ interface IBrokerOptions {
   prefetch?: number;
 }
 
+interface IBasicProperties {
+  contentType?: string;
+  contentEncoding?: string;
+  headers?: Record<string, unknown>;
+  deliveryMode?: number;
+  priority?: number;
+  correlationId?: string;
+  replyTo?: string;
+  expiration?: string;
+  messageId?: string;
+  timestamp?: Date;
+  type?: string;
+  userId?: string;
+  appId?: string;
+  clusterId?: string;
+}
+
+interface IMessage<B = Buffer> {
+  exchange?: string;
+  routing_key: string;
+  mandatory?: boolean;
+  immediate?: boolean;
+  properties?: IBasicProperties;
+  body?: B;
+}
+
+type EExchangeType = 'direct' | 'fanout' | 'topic' | 'headers';
+interface IExchangeArgs {
+  alternameExchange?: string;
+}
+interface IExchange {
+  name: string;
+  type: EExchangeType;
+  durable: boolean;
+  arguments?: IExchangeArgs;
+}
+
+interface IQueueArgs {
+  deadLetterExchange?: string;
+  deadLetterRoutingKey?: string;
+  expires?: number;
+  lazy?: boolean;
+  maxLength?: number;
+  maxLengthBytes?: number;
+  maxPriority?: number;
+  messageTtl?: number;
+  overflow?: 'drop-head' | 'reject-publish';
+  queueMasterLocator?: boolean;
+}
+interface IQueue {
+  name: string;
+  durable: boolean;
+  exclusive: boolean;
+  auto_delete: boolean;
+  arguments?: IQueueArgs;
+}
+interface IBinding {
+  queue: string;
+  exchange: string;
+  routing_key: string;
+}
 function timeout(ms: number) {
   return new Promise(res => {
     setTimeout(res, ms)
@@ -287,7 +358,6 @@ export default class NodeAmqpBroker {
           Buffer.from(JSON.stringify(message.body)),
           {
             contentType: 'application/json',
-            mandatory: message.mandatory,
             persistent: true,
             priority: message.properties?.priority
           }
@@ -306,8 +376,6 @@ export default class NodeAmqpBroker {
         }
 
         throw ex;
-      } finally {
-        release();
       }
     };
 
