@@ -29,10 +29,9 @@ const createMockChannel = (id: number) => ({
 
 type MockChannel = ReturnType<typeof createMockChannel>;
 
-let mockChannel: MockChannel;
-
 // Mock amqplib Connection
 const connectionEmitter = new EventEmitter();
+
 const mockConnection = {
   channelCount: 1,
   createChannel: sinon.stub().callsFake(() => Promise.resolve(createMockChannel(++mockConnection.channelCount))),
@@ -42,24 +41,24 @@ const mockConnection = {
   once: connectionEmitter.once.bind(connectionEmitter),
 };
 
-
-// Stub amqplib.connect before importing the broker
-const connectStub = sinon.stub(amqplib, 'connect');
-
 describe('NodeAmqpBroker', () => {
   let broker: NodeAmqpBroker;
   let sandbox: sinon.SinonSandbox;
   const config = { poolSize: 5, prefetch: 1 };
+  let connectStub: sinon.SinonStub;
+
+  let mockChannel: MockChannel;
 
   beforeEach(() => {
     sandbox = sinon.createSandbox();
+    connectStub = sandbox.stub(amqplib, 'connect');
     // Create a fresh mock channel for each test
     mockChannel = createMockChannel(1);
 
     // Restore stubs and mocks
     connectStub.resetHistory();
     connectStub.resetBehavior();
-    connectStub.resolves(mockConnection as any);
+    connectStub.resolves(mockConnection);
 
     broker = new NodeAmqpBroker(config);
 
@@ -70,11 +69,6 @@ describe('NodeAmqpBroker', () => {
 
   afterEach(() => {
     sandbox.restore();
-  });
-
-  after(() => {
-    // Explicitly restore the original amqplib.connect if necessary
-    connectStub.restore();
   });
 
   describe('connect', () => {

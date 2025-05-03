@@ -57,10 +57,9 @@ export default class NodeAmqpBroker {
       if (ex.code === 'ECONNREFUSED') {
         await timeout(700 * retry);
         return this._connectAmqp(retry + 1);
-      } else {
-        console.error(ex);
-        throw ex;
       }
+
+      throw ex;
     }
   }
 
@@ -280,11 +279,10 @@ export default class NodeAmqpBroker {
 
     const _doPublish = async (): Promise<boolean> => {
       const { channel, release } = await _doAcquire()
-      debug(`publish to channel`);
 
       try {
         if (channel.publish(
-          message.exchange || '',
+          message.exchange ?? '',
           message.routing_key,
           Buffer.from(JSON.stringify(message.body)),
           {
@@ -297,15 +295,19 @@ export default class NodeAmqpBroker {
           release();
           return true;
         } else {
+          debug('Channel is full, waiting for drain');
           channel.once('drain', release);
           return false;
         }
       } catch (ex: any) {
         if (ex.message === 'Channel closed') {
+          debug('Acquired channel got closed, trying to acquire a new one');
           return _doPublish();
         }
 
         throw ex;
+      } finally {
+        release();
       }
     };
 

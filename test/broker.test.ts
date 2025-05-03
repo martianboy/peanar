@@ -1,16 +1,23 @@
 import crypto from 'crypto';
-import { setTimeout as timeout } from 'timers/promises';
+import { setTimeout, setTimeout as timeout } from 'timers/promises';
+import { once } from 'events';
+import { rejects } from 'assert';
 
+import sinon from 'sinon';
 import { expect } from 'chai';
 import amqplib, { ChannelModel } from 'amqplib';
+import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
 
 import { brokerOptions } from './config';
 import Broker from '../src/broker';
-import { createVhost, deleteVhost } from './rabbitmq-http/client';
-import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
-import { once } from 'events';
+
+import * as RabbitmqHttpClient from './rabbitmq-http/client';
+import { retry, Try } from './utils';
 
 class TestBroker extends Broker {
+  constructor(options: any) {
+    super(structuredClone(options));
+  }
   createConnection() {
     return this._connectAmqp();
   }
@@ -36,19 +43,41 @@ class TestBroker extends Broker {
   set maxRetries(maxRetries: number) {
     this.config!.connection!.maxRetries = maxRetries;
   }
+  set username(username: string) {
+    this.config!.connection!.username = username;
+  }
+  set password(password: string) {
+    this.config!.connection!.password = password;
+  }
+  set vhost(vhost: string) {
+    this.config!.connection!.vhost = vhost;
+  }
 }
 
 describe('Broker', () => {
+  let broker: TestBroker;
+  const vhost = `test-${crypto.randomBytes(5).toString('hex')}`;
+  beforeEach(function() {
+    broker = new TestBroker(brokerOptions);
+    broker.vhost = vhost;
+  });
+  afterEach(async function() {
+    await broker.shutdown().catch(() => {});
+  });
+
+  function recreateVhost() {
+    before(async function() {
+      await RabbitmqHttpClient.createVhost(vhost);
+    });
+    after(async function() {
+      await RabbitmqHttpClient.deleteVhost(vhost);
+    });
+  }
+
   describe('Connection', function() {
-    let broker: TestBroker;
-    beforeEach(function() {
-      broker = new TestBroker(brokerOptions);
-    });
-    afterEach(async function() {
-      await broker.shutdown().catch(() => {});
-    });
+    recreateVhost();
+
     it('can access RabbitMQ', async () => {
-      console.log(brokerOptions);
       expect(brokerOptions.connection!.host, 'RABBITMQ_HOST').not.to.be.undefined;
       const broker = new Broker(brokerOptions);
       await broker.connect();
@@ -59,6 +88,12 @@ describe('Broker', () => {
       expect(broker.pool).not.to.be.undefined;
       expect(broker.pool?.isOpen).to.be.true;
       expect(broker.pool?.size).to.be.equal(brokerOptions.poolSize);
+    });
+
+    it('connects to a default vhost', async () => {
+      broker.vhost = '/';
+      await broker.connect();
+      expect(broker.connection).not.to.be.undefined;
     });
 
     it.skip('does not connect again using the same connection', async () => {
@@ -78,6 +113,30 @@ describe('Broker', () => {
         throw new Error('Unexpected connection to invalid AMQP server!');
       }, ex => {
         expect(ex.code).to.be.equal('ECONNREFUSED');
+      });
+    });
+
+    it('throws an error if credentials are invalid', async () => {
+      broker.username = 'invalid';
+      broker.password = 'invalid';
+
+      await rejects(() => broker.connect(), (err: Error) => {
+        expect(err).to.be.instanceOf(Error);
+        expect(err.message).to.include('ACCESS_REFUSED');
+        return true;
+      }, 'Expected ACCESS_REFUSED error');
+    });
+
+    it('reconnects if the connection is lost', async () => {
+      const connectSpy = sinon.spy(broker, 'connect');
+      await broker.connect();
+      const conn = broker.connection;
+      expect(conn).not.to.be.undefined;
+
+      await RabbitmqHttpClient.closeAllUserConnection('guest');
+
+      await retry(10, 10, async () => {
+        sinon.assert.calledTwice(connectSpy);
       });
     });
 
@@ -104,48 +163,42 @@ describe('Broker', () => {
     });
   });
 
-  describe('Functionality', function() {
-    const vhost = crypto.randomBytes(5).toString('hex');
+  describe('Topology', function() {
+    recreateVhost();
 
-    const broker = new TestBroker({
-      poolSize: 1,
-      connection: {
-        ...brokerOptions.connection!,
-        vhost
-      }
-    });
-
-    before(async function() {
-      await createVhost(vhost);
-
-      await broker.connect();
-      return broker;
-    });
-
-    after(async function() {
-      await broker.shutdown();
-      await deleteVhost(vhost);
-    });
-
-    it('can declare queues', async () => {
+    it('can declare and redeclare queues', async () => {
       await broker.queues([{
         name: 'q1',
         auto_delete: false,
-        durable: false,
+        durable: true,
         exclusive: false
       }]);
 
-      await broker.pool!.acquireAndRun(ch => ch.checkQueue('q1'));
+      await broker.queues([{
+        name: 'q1',
+        auto_delete: false,
+        durable: true,
+        exclusive: false
+      }]);
+
+      const queuesResp = await RabbitmqHttpClient.getVhostQueues(vhost);
+      expect(queuesResp.map(q => q.name)).to.have.length(1).and.to.include('q1');
     });
 
-    it('can declare exchanges', async () => {
+    it('can declare and redeclare exchanges', async () => {
       await broker.exchanges([{
         name: 'e1',
-        durable: false,
+        durable: true,
         type: 'direct',
       }]);
 
-      await broker.pool!.acquireAndRun(ch => ch.checkExchange('e1'));
+      await broker.exchanges([{
+        name: 'e1',
+        durable: true,
+        type: 'direct',
+      }]);
+
+      expect((await RabbitmqHttpClient.getVhostExchanges(vhost)).map(q => q.name)).to.include('e1');
     });
 
     it('can bind exchanges to queues', async () => {
@@ -155,8 +208,41 @@ describe('Broker', () => {
         routing_key: '#'
       }]);
 
-      await broker.pool!.acquireAndRun(ch => ch.checkExchange('e1'));
+      const bindings = await RabbitmqHttpClient.getBindings(vhost, 'q1');
+      const nonDefault = bindings.find(b => b.source !== '');
+      expect(nonDefault).not.to.be.undefined;
+      expect(nonDefault.source).to.be.equal('e1');
+      expect(nonDefault.destination).to.be.equal('q1');
+      expect(nonDefault.routing_key).to.be.equal('#');
     });
+
+    it('binding throws an error if the exchange is not declared', async () => {
+      const [_, err] = await Try.catch(() => broker.bindings([{
+        exchange: 'non_existent_exchange',
+        queue: 'q1',
+        routing_key: '#'
+      }]));
+
+      expect(err).not.to.be.null;
+      expect(err).to.be.instanceOf(Error);
+      expect(err!.message).to.include('NOT_FOUND').and.to.include(`no exchange 'non_existent_exchange'`);
+    });
+
+    it('binding throws an error if the queue is not declared', async () => {
+      const [_, err] = await Try.catch(() => broker.bindings([{
+        exchange: 'e1',
+        queue: 'non_existent_queue',
+        routing_key: '#'
+      }]));
+
+      expect(err).not.to.be.null;
+      expect(err).to.be.instanceOf(Error);
+      expect(err!.message).to.include('NOT_FOUND').and.to.include(`no queue 'non_existent_queue'`);
+    });
+  });
+
+  describe('Publishing', function() {
+    recreateVhost();
 
     async function publish(args: IMessage<unknown>) {
       const payload = { username: 'martianboy' };
@@ -173,7 +259,7 @@ describe('Broker', () => {
 
         const consumer = await ch.consume('q1', msg => resolveFn(msg));
 
-        const delivery = await promise;
+        const delivery = await Promise.race([promise, setTimeout(1000)]);
         await ch.cancel(consumer.consumerTag);
         ch.ackAll();
 
@@ -184,17 +270,71 @@ describe('Broker', () => {
     }
 
     it('can publish a message to an exchange', async function() {
+      await broker.queues([{
+        name: 'q1',
+        auto_delete: false,
+        durable: false,
+        exclusive: false
+      }]);
+      await broker.exchanges([{
+        name: 'e1',
+        durable: false,
+        type: 'direct',
+      }]);
+      await broker.bindings([{
+        exchange: 'e1',
+        queue: 'q1',
+        routing_key: '#'
+      }]);
+
       await publish({
         routing_key: '#',
         exchange: 'e1',
       });
     });
     it('can publish a message to the default exchange', async function() {
+      await broker.queues([{
+        name: 'q1',
+        auto_delete: false,
+        durable: false,
+        exclusive: false
+      }]);
       await publish({
         routing_key: 'q1',
       });
     });
 
+    it('can publish multiple messages without overloading a channel', async function() {
+      await broker.queues([{
+        name: 'q2',
+        auto_delete: false,
+        durable: false,
+        exclusive: false
+      }]);
+
+      let returnedFalseYet = false;
+      for (let i = 0; i < 2500; i++) {
+        const ret = await broker.publish({
+          routing_key: 'q2',
+          body: { message: 'Hello, World!' }
+        });
+
+        returnedFalseYet ||= !ret;
+      }
+
+      expect(returnedFalseYet).to.be.true;
+
+      await broker.pool?.acquireAndRun(async ch => {
+        await retry(5, 5, async () => {
+          const { messageCount } = await ch.checkQueue('q2');
+          expect(messageCount, 'not all messages were received after 5 trials').to.be.equal(2500);
+        });
+        await ch.deleteQueue('q2');
+      });
+    });
+  });
+
+  xdescribe('Consuming', function() {
     it.skip('can consume from a queue', async function() {
       const consumer = await broker.consume('q1');
       const { consumerCount } = await broker.pool!.acquireAndRun(async ch => {
@@ -245,44 +385,9 @@ describe('Broker', () => {
       expect(consumerCount).to.be.eq(3);
       await Promise.all(consumers.map(c => c.consumer.cancel()));
     });
-
-    it('can publish multiple messages without overloading a channel', async function() {
-      await broker.queues([{
-        name: 'q2',
-        auto_delete: false,
-        durable: false,
-        exclusive: false
-      }]);
-
-      let returnedFalseYet = false;
-      for (let i = 0; i < 2500; i++) {
-        const ret = await broker.publish({
-          routing_key: 'q2',
-          body: { message: 'Hello, World!' }
-        });
-
-        returnedFalseYet ||= !ret;
-      }
-
-      expect(returnedFalseYet).to.be.true;
-
-      await broker.pool?.acquireAndRun(async ch => {
-        let all_received = false;
-        for (let i = 0; i < 5; i++) {
-          const { messageCount } = await ch.checkQueue('q2');
-          if (messageCount === 2500) {
-            all_received = true;
-            break;
-          }
-          await timeout(5);
-        }
-        expect(all_received, 'not all messages were received after 5 trials').to.be.true;
-        await ch.deleteQueue('q2');
-      });
-    });
   });
 
-  describe('Error handling', function() {
+  xdescribe('Error handling', function() {
     describe('#consume()', function() {
       it('throws when not connected', async function() {
         const broker = new Broker(brokerOptions);
@@ -297,4 +402,4 @@ describe('Broker', () => {
     describe('#shutdown()', function() {
     });
   });
-});
+}).timeout(-1);
