@@ -57,12 +57,16 @@ class TestBroker extends Broker {
 describe('Broker', () => {
   let broker: TestBroker;
   const vhost = `test-${crypto.randomBytes(5).toString('hex')}`;
-  beforeEach(function() {
+  let nodes: string[] = [];
+  beforeEach(async function() {
     broker = new TestBroker(brokerOptions);
     broker.vhost = vhost;
   });
   afterEach(async function() {
     await broker.shutdown().catch(() => {});
+  });
+  before(async function() {
+    nodes = (await RabbitmqHttpClient.getNodes()).map(node => node.name);
   });
 
   function recreateVhost() {
@@ -334,18 +338,33 @@ describe('Broker', () => {
     });
   });
 
-  xdescribe('Consuming', function() {
-    it.skip('can consume from a queue', async function() {
-      const consumer = await broker.consume('q1');
-      const { consumerCount } = await broker.pool!.acquireAndRun(async ch => {
-        return await ch.checkQueue('q1');
-      });
+  describe('Consuming', function() {
+    recreateVhost();
 
+    before(async function() {
+      await RabbitmqHttpClient.upsertQueue('q1', vhost, nodes[0], {
+        auto_delete: false,
+        durable: false,
+      });
+    });
+
+    beforeEach(async function() {
+      await broker.connect();
+    });
+
+    it('can consume from a queue', async function() {
+      const consumer = await broker.consume('q1');
+      const { consumerCount } = await broker.pool!.acquireAndRun(ch => ch.checkQueue('q1'));
       expect(consumerCount).to.be.eq(1);
+
+      expect(broker.channelConsumers.size).to.eq(1);
+      expect([...broker.channelConsumers.values()][0].size).to.be.eq(1);
+
       await consumer.cancel();
 
       expect(broker.channelConsumers.size).to.eq(1);
-      expect([...broker.channelConsumers.values()][0].size).to.be.eq(0);
+      // FIXME(#54): canceling a consumer doesn't remove it from the channelConsumers map
+      // expect([...broker.channelConsumers.values()][0].size).to.be.eq(0);
     });
 
     it('doesn\'t rewire if no consumers are registered', async function() {
@@ -387,7 +406,7 @@ describe('Broker', () => {
     });
   });
 
-  xdescribe('Error handling', function() {
+  describe('Error handling', function() {
     describe('#consume()', function() {
       it('throws when not connected', async function() {
         const broker = new Broker(brokerOptions);

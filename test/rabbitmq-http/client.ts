@@ -11,6 +11,7 @@ interface FetchOptions {
   method?: string;
   qs?: Record<string, string>;
   headers?: Record<string, string>;
+  body?: string | Record<string, unknown>;
 }
 
 class StatusCodeError extends Error {
@@ -42,11 +43,19 @@ async function request(options: FetchOptions) {
   }
 
   debug(`${options.method} ${url.toString()}`);
-  const resp = await fetch(url.toString(), {
+  const req: RequestInit = {
     method: options.method,
     headers
-  });
+  };
+  if (options.body) {
+    if (typeof options.body === 'string') {
+      req.body = options.body;
+    } else {
+      req.body = JSON.stringify(options.body);
+    }
+  }
 
+  const resp = await fetch(url.toString(), req);
   if (resp.status >= 400) {
     const body = await resp.text();
     throw new StatusCodeError(resp.status, resp.statusText, body);
@@ -64,6 +73,10 @@ async function getList<T = any>(options: FetchOptions): Promise<T[]> {
 
   const body = (await resp.json()) as any;
   return (body?.items as T[]) ?? body as T[];
+}
+
+export function getNodes(): Promise<any[]> {
+  return getList({ path: '/nodes' });
 }
 
 interface RabbitMQConnection {
@@ -120,6 +133,24 @@ export function getQueues(options: { enable_queue_totals?: boolean; disable_stat
     return [k, v.toString()];
   }));
   return getList({ path: '/queues', qs });
+}
+
+export function upsertQueue(
+  name: string,
+  vhost: string,
+  node: string,
+  options: { durable?: boolean; auto_delete?: boolean; arguments?: Record<string, any> } = {}): Promise<any>
+{
+  return request({
+    method: 'PUT',
+    path: `/queues/${vhost}/${name}`,
+    body: {
+      name,
+      vhost,
+      node,
+      ...options
+    }
+  });
 }
 
 export function getVhostQueues(vhost: string, options: { enable_queue_totals?: boolean; disable_stats?: boolean } = {}): Promise<any[]> {
