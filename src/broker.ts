@@ -199,14 +199,21 @@ export default class NodeAmqpBroker {
     return this._connectPromise;
   }
 
-  public async shutdown() {
-    debug('shutdown()');
-
+  /**
+   * Awaits pool closure and then closes the connection
+   * @returns {Promise<void>}
+   *
+   * @todo: use a state machine to handle connection state
+   * @todo: support shutdown timeout
+   */
+  public async shutdown(): Promise<void> {
     // FIXME: replace this with a proper state machine
     if (!this.conn || !this.pool) {
-      throw new PeanarAdapterError('Not connected!');
+      debug('shutdown() called when not connected');
+      return;
     }
 
+    debug('shutdown()');
     this.conn.off('close', this.onClose);
 
     await this.pool.close();

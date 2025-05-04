@@ -9,7 +9,6 @@ import { Try } from '../test/utils';
 import NodeAmqpBroker from './broker';
 import { ChannelPool } from './pool';
 import Consumer from './consumer';
-import { PeanarAdapterError } from './exceptions';
 
 // Mock amqplib Channel
 const createMockChannel = (id: number) => ({
@@ -133,11 +132,48 @@ describe('NodeAmqpBroker', () => {
 
     it('should consider shutdown a noop if not connected', async () => {
       const [_, err] = await Try.catch(() => broker.shutdown());
-      expect(err).to.be.an.instanceOf(PeanarAdapterError);
-      expect(err?.message).to.equal('Not connected!');
+      expect(err).to.be.null;
 
       sinon.assert.notCalled(mockConnection.close);
       sinon.assert.notCalled(poolCloseSpy);
+    });
+
+    it('should not reconnect halfway through shutdown', async () => {
+      class ServerShutdownError extends Error {
+        name = 'ServerShutdownError';
+        code = 500;
+        constructor() {
+          super('Server shutdown');
+        }
+      }
+
+      await broker.connect();
+      connectStub.resetHistory();
+
+      // Acquire a channel to hold for a while
+      const { release } = await broker.pool!.acquire();
+
+      // Begin shutdown
+      const shutdownPromise = broker.shutdown();
+
+      // Simulate a server-initiated connection close
+      connectionEmitter.emit('close', new ServerShutdownError());
+
+      // Ensure that no new connection attempt was made
+      sinon.assert.notCalled(connectStub);
+      sinon.assert.notCalled(mockConnection.close);
+
+      // Release the channel
+      release();
+
+      // Wait for the shutdown to complete
+      await shutdownPromise;
+
+      // Ensure that the pool is closed
+      expect(broker.pool).to.be.undefined;
+      sinon.assert.calledOnce(poolCloseSpy);
+      sinon.assert.calledOnce(mockConnection.close);
+      expect(() => broker.ready()).to.throw('Not connected!');
     });
   });
 
@@ -177,9 +213,13 @@ describe('NodeAmqpBroker', () => {
 
   describe('rewireConsumersOnChannel', () => {
     it('should rewire consumers to a new channel', async () => {
-      const newChannel = createMockChannel(2);
-      const consumer = new Consumer(mockChannel, 'test-queue');
-      (broker as any)._channelConsumers.set(mockChannel, new Set([consumer]));
+      await broker.connect();
+      const consumer = await broker.consume('test-queue');
+
+      const newChannel = createMockChannel(6);
+      const oldChannel = consumer.channel;
+
+      broker.pool!.emit('channelReplaced', oldChannel, newChannel);
 
       await (broker as any).rewireConsumersOnChannel(mockChannel, newChannel);
 
