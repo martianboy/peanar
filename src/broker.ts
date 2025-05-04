@@ -210,7 +210,7 @@ export default class NodeAmqpBroker {
   /**
    * Awaits pool closure and then closes the connection
    * @todo: use a state machine to handle connection state (#68)
-   * @todo: support shutdown timeout
+   * @todo: support shutdown timeout (#69)
    */
   public async shutdown(): Promise<void> {
     // FIXME: replace this with a proper state machine (#68)
@@ -285,7 +285,7 @@ export default class NodeAmqpBroker {
 
   /**
    * Recreates consumers on a new channel in the same way as the old one
-   * @todo properly handle errors, e.g. if the channel is closed when we try to consume
+   * @todo properly handle errors, e.g. if the channel is closed when we try to consume (#67)
    */
   private async rewireConsumersOnChannel(ch: Channel, newCh: Channel) {
     const set = this._channelConsumers.get(ch);
