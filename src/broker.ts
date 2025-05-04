@@ -5,11 +5,21 @@ import amqplib, { ChannelModel, ConsumeMessage, Replies, Channel } from 'amqplib
 
 import { ChannelPool } from './pool';
 import { PeanarAdapterError } from './exceptions';
-import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
-import { IQueue, IBinding } from 'ts-amqp/dist/interfaces/Queue';
-import { IExchange } from 'ts-amqp/dist/interfaces/Exchange';
 import Consumer from './consumer';
-import { IConnectionParams } from 'ts-amqp/dist/interfaces/Connection';
+
+interface IConnectionParams {
+  maxRetries: number;
+  retryDelay: number;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  locale: string;
+  keepAlive?: boolean;
+  keepAliveDelay?: number;
+  timeout?: number;
+  vhost: string;
+}
 
 interface IBrokerOptions {
   connection?: IConnectionParams;
@@ -17,6 +27,67 @@ interface IBrokerOptions {
   prefetch?: number;
 }
 
+interface IBasicProperties {
+  contentType?: string;
+  contentEncoding?: string;
+  headers?: Record<string, unknown>;
+  deliveryMode?: number;
+  priority?: number;
+  correlationId?: string;
+  replyTo?: string;
+  expiration?: string;
+  messageId?: string;
+  timestamp?: Date;
+  type?: string;
+  userId?: string;
+  appId?: string;
+  clusterId?: string;
+}
+
+interface IMessage<B = Buffer> {
+  exchange?: string;
+  routing_key: string;
+  mandatory?: boolean;
+  immediate?: boolean;
+  properties?: IBasicProperties;
+  body?: B;
+}
+
+type EExchangeType = 'direct' | 'fanout' | 'topic' | 'headers';
+interface IExchangeArgs {
+  alternameExchange?: string;
+}
+interface IExchange {
+  name: string;
+  type: EExchangeType;
+  durable: boolean;
+  arguments?: IExchangeArgs;
+}
+
+interface IQueueArgs {
+  deadLetterExchange?: string;
+  deadLetterRoutingKey?: string;
+  expires?: number;
+  lazy?: boolean;
+  maxLength?: number;
+  maxLengthBytes?: number;
+  maxPriority?: number;
+  messageTtl?: number;
+  overflow?: 'drop-head' | 'reject-publish';
+  queueMasterLocator?: boolean;
+}
+interface IQueue {
+  name: string;
+  durable: boolean;
+  exclusive: boolean;
+  auto_delete: boolean;
+  arguments?: IQueueArgs;
+}
+interface IBinding {
+  queue: string;
+  exchange: string;
+  routing_key: string;
+}
 function timeout(ms: number) {
   return new Promise(res => {
     setTimeout(res, ms)
@@ -57,10 +128,9 @@ export default class NodeAmqpBroker {
       if (ex.code === 'ECONNREFUSED') {
         await timeout(700 * retry);
         return this._connectAmqp(retry + 1);
-      } else {
-        console.error(ex);
-        throw ex;
       }
+
+      throw ex;
     }
   }
 
@@ -87,6 +157,7 @@ export default class NodeAmqpBroker {
       });
       this.pool.on('channelReplaced', (ch, newCh) => {
         this.rewireConsumersOnChannel(ch, newCh).catch(ex => {
+          // FIXME: don't leave the broker in a broken state
           console.error(ex);
         });
       });
@@ -99,6 +170,7 @@ export default class NodeAmqpBroker {
 
       conn.once('close', this.onClose);
 
+      // TODO: consider not exposing connection
       return conn;
     }
 
@@ -121,7 +193,13 @@ export default class NodeAmqpBroker {
     }
   }
 
-  ready() {
+  /**
+   * Awaits connection establishment
+   * @throws {PeanarAdapterError} if not connected or in the process of connecting
+   * @todo use a state machine to handle connection state (#68)
+   * @todo return a Promise<void> instead of Promise<unknown>
+   */
+  ready(): Promise<unknown> {
     if (!this._connectPromise) {
       throw new PeanarAdapterError('Not connected!');
     }
@@ -129,14 +207,19 @@ export default class NodeAmqpBroker {
     return this._connectPromise;
   }
 
-  public async shutdown() {
-    debug('shutdown()');
-
-    // FIXME: replace this with a proper state machine
+  /**
+   * Awaits pool closure and then closes the connection
+   * @todo: use a state machine to handle connection state (#68)
+   * @todo: support shutdown timeout (#69)
+   */
+  public async shutdown(): Promise<void> {
+    // FIXME: replace this with a proper state machine (#68)
     if (!this.conn || !this.pool) {
-      throw new PeanarAdapterError('Not connected!');
+      debug('shutdown() called when not connected');
+      return;
     }
 
+    debug('shutdown()');
     this.conn.off('close', this.onClose);
 
     await this.pool.close();
@@ -186,6 +269,8 @@ export default class NodeAmqpBroker {
   }
 
   private async resurrectAllConsumers() {
+    // Expectation here is that the pool is already connected and have
+    // the same number of channels as before
     await Promise.all(this.pool!.mapOver([...this._channelConsumers.keys()], (newCh, oldCh) => this.rewireConsumersOnChannel(oldCh, newCh)))
   }
 
@@ -198,11 +283,16 @@ export default class NodeAmqpBroker {
     }
   }
 
+  /**
+   * Recreates consumers on a new channel in the same way as the old one
+   * @todo properly handle errors, e.g. if the channel is closed when we try to consume (#67)
+   */
   private async rewireConsumersOnChannel(ch: Channel, newCh: Channel) {
     const set = this._channelConsumers.get(ch);
     if (!set || set.size < 1) return;
 
     for (const consumer of set) {
+      // FIXME (#67): handle potential errors
       const res = await newCh.consume(consumer.queue, (msg: ConsumeMessage | null) => {
         if (msg && consumer) {
           consumer.handleDelivery(msg);
@@ -280,16 +370,14 @@ export default class NodeAmqpBroker {
 
     const _doPublish = async (): Promise<boolean> => {
       const { channel, release } = await _doAcquire()
-      debug(`publish to channel`);
 
       try {
         if (channel.publish(
-          message.exchange || '',
+          message.exchange ?? '',
           message.routing_key,
           Buffer.from(JSON.stringify(message.body)),
           {
             contentType: 'application/json',
-            mandatory: message.mandatory,
             persistent: true,
             priority: message.properties?.priority
           }
@@ -297,11 +385,13 @@ export default class NodeAmqpBroker {
           release();
           return true;
         } else {
+          debug('Channel is full, waiting for drain');
           channel.once('drain', release);
           return false;
         }
       } catch (ex: any) {
         if (ex.message === 'Channel closed') {
+          debug('Acquired channel got closed, trying to acquire a new one');
           return _doPublish();
         }
 

@@ -3,5 +3,6 @@
   "extensions": [
     "ts"
   ],
-  "spec": ["test/**/*.test.ts"]
+  "spec": ["test/**/*.test.ts"],
+  "timeout": -1
 }

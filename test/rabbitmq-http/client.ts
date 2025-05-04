@@ -10,6 +10,8 @@ interface FetchOptions {
   path: string;
   method?: string;
   qs?: Record<string, string>;
+  headers?: Record<string, string>;
+  body?: string | Record<string, unknown>;
 }
 
 class StatusCodeError extends Error {
@@ -29,6 +31,9 @@ async function request(options: FetchOptions) {
   const headers = new Headers();
   headers.append('Content-Type', 'application/json');
   headers.append('Authorization', `Basic ${credentials}`);
+  for (const k of Object.keys(options.headers || {})) {
+    headers.append(k, options.headers![k]);
+  }
 
   const url = new URL(BASE_URL + options.path);
   if (options.qs) {
@@ -38,11 +43,19 @@ async function request(options: FetchOptions) {
   }
 
   debug(`${options.method} ${url.toString()}`);
-  const resp = await fetch(url.toString(), {
+  const req: RequestInit = {
     method: options.method,
     headers
-  });
+  };
+  if (options.body) {
+    if (typeof options.body === 'string') {
+      req.body = options.body;
+    } else {
+      req.body = JSON.stringify(options.body);
+    }
+  }
 
+  const resp = await fetch(url.toString(), req);
   if (resp.status >= 400) {
     const body = await resp.text();
     throw new StatusCodeError(resp.status, resp.statusText, body);
@@ -51,27 +64,34 @@ async function request(options: FetchOptions) {
   return resp;
 }
 
-async function getList(options: FetchOptions) {
-  return request({
+async function getList<T = any>(options: FetchOptions): Promise<T[]> {
+  const resp = await request({
     path: options.path,
     method: 'GET',
-    // qs: { page_size: '50', page: '1', ...options.qs}
+    qs: { page_size: '50', page: '1', ...options.qs}
   });
+
+  const body = (await resp.json()) as any;
+  return (body?.items as T[]) ?? body as T[];
 }
 
-export async function getConnections() {
-  const resp = await getList({ path: '/connections' });
-  return resp.json();
+export function getNodes(): Promise<any[]> {
+  return getList({ path: '/nodes' });
 }
 
-export async function getChannels() {
-  const resp = await getList({ path: '/channels' });
-  return resp.json();
+interface RabbitMQConnection {
+  name: string;
+}
+export function getConnections(): Promise<RabbitMQConnection[]> {
+  return getList({ path: '/connections' });
 }
 
-export async function getVhosts() {
-  const resp = await getList({ path: '/vhosts' });
-  return resp.json();
+export function getChannels() {
+  return getList({ path: '/channels' });
+}
+
+export function getVhosts() {
+  return getList({ path: '/vhosts' });
 }
 
 export async function createVhost(name: string) {
@@ -86,4 +106,64 @@ export async function deleteVhost(name: string) {
     path: '/vhosts/' + name,
     method: 'DELETE'
   });
+}
+
+export function closeConnection(name: string) {
+  return request({
+    path: '/connections/' + name,
+    method: 'DELETE',
+    headers: {
+      'X-Reason': 'Server initiated closure'
+    }
+  });
+}
+
+export function closeAllUserConnection(user: string) {
+  return request({
+    path: '/connections/username/' + user,
+    method: 'DELETE',
+    headers: {
+      'X-Reason': 'Server initiated closure'
+    }
+  });
+}
+
+export function getQueues(options: { enable_queue_totals?: boolean; disable_stats?: boolean } = {}): Promise<any[]> {
+  const qs = Object.fromEntries(Object.entries(options).map(([k, v]) => {
+    return [k, v.toString()];
+  }));
+  return getList({ path: '/queues', qs });
+}
+
+export function upsertQueue(
+  name: string,
+  vhost: string,
+  node: string,
+  options: { durable?: boolean; auto_delete?: boolean; arguments?: Record<string, any> } = {}): Promise<any>
+{
+  return request({
+    method: 'PUT',
+    path: `/queues/${vhost}/${name}`,
+    body: {
+      name,
+      vhost,
+      node,
+      ...options
+    }
+  });
+}
+
+export function getVhostQueues(vhost: string, options: { enable_queue_totals?: boolean; disable_stats?: boolean } = {}): Promise<any[]> {
+  const qs = Object.fromEntries(Object.entries(options).map(([k, v]) => {
+    return [k, v.toString()];
+  }));
+  return getList({ path: `/queues/${vhost}`, qs });
+}
+
+export function getVhostExchanges(vhost: string): Promise<any[]> {
+  return getList({ path: `/exchanges/${vhost}` });
+}
+
+export function getBindings(vhost: string, queue: string): Promise<any[]> {
+  return getList({ path: `/queues/${vhost}/${queue}/bindings`});
 }

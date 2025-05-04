@@ -1,12 +1,21 @@
-import EventEmitter from 'events';
+import EventEmitter, { once } from 'events';
 import { expect } from 'chai';
 import { rejects } from 'assert';
 import sinon from 'sinon';
 import amqplib, { Replies } from 'amqplib';
 
+import { Try } from '../test/utils';
+
 import NodeAmqpBroker from './broker';
 import { ChannelPool } from './pool';
-import Consumer from './consumer';
+
+class ServerShutdownError extends Error {
+  name = 'ServerShutdownError';
+  code = 500;
+  constructor() {
+    super('Server shutdown');
+  }
+}
 
 // Mock amqplib Channel
 const createMockChannel = (id: number) => ({
@@ -29,10 +38,9 @@ const createMockChannel = (id: number) => ({
 
 type MockChannel = ReturnType<typeof createMockChannel>;
 
-let mockChannel: MockChannel;
-
 // Mock amqplib Connection
 const connectionEmitter = new EventEmitter();
+
 const mockConnection = {
   channelCount: 1,
   createChannel: sinon.stub().callsFake(() => Promise.resolve(createMockChannel(++mockConnection.channelCount))),
@@ -42,24 +50,24 @@ const mockConnection = {
   once: connectionEmitter.once.bind(connectionEmitter),
 };
 
-
-// Stub amqplib.connect before importing the broker
-const connectStub = sinon.stub(amqplib, 'connect');
-
 describe('NodeAmqpBroker', () => {
   let broker: NodeAmqpBroker;
   let sandbox: sinon.SinonSandbox;
   const config = { poolSize: 5, prefetch: 1 };
+  let connectStub: sinon.SinonStub;
+
+  let mockChannel: MockChannel;
 
   beforeEach(() => {
     sandbox = sinon.createSandbox();
+    connectStub = sandbox.stub(amqplib, 'connect');
     // Create a fresh mock channel for each test
     mockChannel = createMockChannel(1);
 
     // Restore stubs and mocks
     connectStub.resetHistory();
     connectStub.resetBehavior();
-    connectStub.resolves(mockConnection as any);
+    connectStub.resolves(mockConnection);
 
     broker = new NodeAmqpBroker(config);
 
@@ -70,11 +78,6 @@ describe('NodeAmqpBroker', () => {
 
   afterEach(() => {
     sandbox.restore();
-  });
-
-  after(() => {
-    // Explicitly restore the original amqplib.connect if necessary
-    connectStub.restore();
   });
 
   describe('connect', () => {
@@ -112,6 +115,22 @@ describe('NodeAmqpBroker', () => {
       sinon.assert.called(mockConnection.createChannel);
       expect(broker.pool?.size).to.equal(config.poolSize);
     });
+
+    it('should reconnect on connection error after initial connection', async () => {
+      await broker.connect();
+      connectStub.resetHistory();
+
+      // Simulate a connection error
+      const error = new ServerShutdownError();
+      connectionEmitter.emit('close', error);
+
+      // Wait for the broker to reconnect
+      await broker.ready();
+
+      sinon.assert.calledOnce(connectStub);
+      sinon.assert.called(mockConnection.createChannel);
+      expect(broker.pool?.size).to.equal(config.poolSize);
+    });
   });
 
   describe('shutdown', () => {
@@ -134,11 +153,42 @@ describe('NodeAmqpBroker', () => {
       expect(broker.pool).to.be.undefined;
     });
 
-    it.skip('should consider shutdown a noop if not connected', async () => {
-      await broker.shutdown();
+    it('should consider shutdown a noop if not connected', async () => {
+      const [_, err] = await Try.catch(() => broker.shutdown());
+      expect(err).to.be.null;
 
       sinon.assert.notCalled(mockConnection.close);
       sinon.assert.notCalled(poolCloseSpy);
+    });
+
+    it('should not reconnect halfway through shutdown', async () => {
+      await broker.connect();
+      connectStub.resetHistory();
+
+      // Acquire a channel to hold for a while
+      const { release } = await broker.pool!.acquire();
+
+      // Begin shutdown
+      const shutdownPromise = broker.shutdown();
+
+      // Simulate a server-initiated connection close
+      connectionEmitter.emit('close', new ServerShutdownError());
+
+      // Ensure that no new connection attempt was made
+      sinon.assert.notCalled(connectStub);
+      sinon.assert.notCalled(mockConnection.close);
+
+      // Release the channel
+      release();
+
+      // Wait for the shutdown to complete
+      await shutdownPromise;
+
+      // Ensure that the pool is closed
+      expect(broker.pool).to.be.undefined;
+      sinon.assert.calledOnce(poolCloseSpy);
+      sinon.assert.calledOnce(mockConnection.close);
+      expect(() => broker.ready()).to.throw('Not connected!');
     });
   });
 
@@ -178,11 +228,14 @@ describe('NodeAmqpBroker', () => {
 
   describe('rewireConsumersOnChannel', () => {
     it('should rewire consumers to a new channel', async () => {
-      const newChannel = createMockChannel(2);
-      const consumer = new Consumer(mockChannel, 'test-queue');
-      (broker as any)._channelConsumers.set(mockChannel, new Set([consumer]));
+      await broker.connect();
+      const consumer = await broker.consume('test-queue');
 
-      await (broker as any).rewireConsumersOnChannel(mockChannel, newChannel);
+      const newChannel = createMockChannel(6);
+      const oldChannel = consumer.channel;
+
+      broker.pool!.emit('channelReplaced', oldChannel, newChannel);
+      await once(consumer, 'resume');
 
       sinon.assert.calledOnce(newChannel.consume);
       expect((broker as any)._channelConsumers.get(newChannel)).to.include(consumer);
