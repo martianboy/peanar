@@ -91,31 +91,34 @@ export default class NodeAmqpBroker {
         });
       });
 
+      // FIXME: seems unused; remove?
       conn.on('error', ex => {
         debug(`AMQP connection error ${ex.code}!`);
         debug(`Original error message: ${ex.message}`);
       });
 
-      conn.once('close', (err?: any) => {
-        if (err) {
-          debug(err.message);
-        } else {
-          debug('AMQP connection closed.');
-        }
-
-        this._connectPromise = undefined;
-        if (err && err.code >= 300) {
-          this.connect();
-        } else {
-          this.pool!.close();
-          this.pool = undefined;
-        }
-      });
+      conn.once('close', this.onClose);
 
       return conn;
     }
 
     return (this._connectPromise = doConnect());
+  }
+
+  onClose = (err?: any) => {
+    if (err) {
+      debug(err.message);
+    } else {
+      debug('AMQP connection closed.');
+    }
+
+    this._connectPromise = undefined;
+    if (err && err.code >= 300) {
+      this.connect();
+    } else {
+      this.pool!.close();
+      this.pool = undefined;
+    }
   }
 
   ready() {
@@ -129,20 +132,22 @@ export default class NodeAmqpBroker {
   public async shutdown() {
     debug('shutdown()');
 
-    if (this.pool) {
-      await this.pool.close();
-      this.pool = undefined;
-      debug('pool closed.');
+    // FIXME: replace this with a proper state machine
+    if (!this.conn || !this.pool) {
+      throw new PeanarAdapterError('Not connected!');
     }
 
-    if (this.conn) {
-      this.conn.off('close', this.connect);
-      await this.conn.close();
-      this._connectPromise = undefined;
-      this._channelConsumers.clear();
-      this.conn = undefined;
-      debug('connection closed.');
-    }
+    this.conn.off('close', this.onClose);
+
+    await this.pool.close();
+    this.pool = undefined;
+    debug('pool closed.');
+
+    await this.conn.close();
+    this._connectPromise = undefined;
+    this._channelConsumers.clear();
+    this.conn = undefined;
+    debug('connection closed.');
   }
 
   public async queues(queues: IQueue[]) {
