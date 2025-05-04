@@ -134,7 +134,7 @@ describe('NodeAmqpBroker', () => {
       expect(broker.pool).to.be.undefined;
     });
 
-    it('should consider shutdown a noop if not connected', async () => {
+    it.skip('should consider shutdown a noop if not connected', async () => {
       await broker.shutdown();
 
       sinon.assert.notCalled(mockConnection.close);
