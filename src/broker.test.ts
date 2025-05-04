@@ -4,9 +4,12 @@ import { rejects } from 'assert';
 import sinon from 'sinon';
 import amqplib, { Replies } from 'amqplib';
 
+import { Try } from '../test/utils';
+
 import NodeAmqpBroker from './broker';
 import { ChannelPool } from './pool';
 import Consumer from './consumer';
+import { PeanarAdapterError } from './exceptions';
 
 // Mock amqplib Channel
 const createMockChannel = (id: number) => ({
@@ -128,8 +131,10 @@ describe('NodeAmqpBroker', () => {
       expect(broker.pool).to.be.undefined;
     });
 
-    it.skip('should consider shutdown a noop if not connected', async () => {
-      await broker.shutdown();
+    it('should consider shutdown a noop if not connected', async () => {
+      const [_, err] = await Try.catch(() => broker.shutdown());
+      expect(err).to.be.an.instanceOf(PeanarAdapterError);
+      expect(err?.message).to.equal('Not connected!');
 
       sinon.assert.notCalled(mockConnection.close);
       sinon.assert.notCalled(poolCloseSpy);
