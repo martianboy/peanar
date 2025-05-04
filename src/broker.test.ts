@@ -1,4 +1,4 @@
-import EventEmitter from 'events';
+import EventEmitter, { once } from 'events';
 import { expect } from 'chai';
 import { rejects } from 'assert';
 import sinon from 'sinon';
@@ -8,7 +8,14 @@ import { Try } from '../test/utils';
 
 import NodeAmqpBroker from './broker';
 import { ChannelPool } from './pool';
-import Consumer from './consumer';
+
+class ServerShutdownError extends Error {
+  name = 'ServerShutdownError';
+  code = 500;
+  constructor() {
+    super('Server shutdown');
+  }
+}
 
 // Mock amqplib Channel
 const createMockChannel = (id: number) => ({
@@ -108,6 +115,22 @@ describe('NodeAmqpBroker', () => {
       sinon.assert.called(mockConnection.createChannel);
       expect(broker.pool?.size).to.equal(config.poolSize);
     });
+
+    it('should reconnect on connection error after initial connection', async () => {
+      await broker.connect();
+      connectStub.resetHistory();
+
+      // Simulate a connection error
+      const error = new ServerShutdownError();
+      connectionEmitter.emit('close', error);
+
+      // Wait for the broker to reconnect
+      await broker.ready();
+
+      sinon.assert.calledOnce(connectStub);
+      sinon.assert.called(mockConnection.createChannel);
+      expect(broker.pool?.size).to.equal(config.poolSize);
+    });
   });
 
   describe('shutdown', () => {
@@ -139,14 +162,6 @@ describe('NodeAmqpBroker', () => {
     });
 
     it('should not reconnect halfway through shutdown', async () => {
-      class ServerShutdownError extends Error {
-        name = 'ServerShutdownError';
-        code = 500;
-        constructor() {
-          super('Server shutdown');
-        }
-      }
-
       await broker.connect();
       connectStub.resetHistory();
 
@@ -220,8 +235,7 @@ describe('NodeAmqpBroker', () => {
       const oldChannel = consumer.channel;
 
       broker.pool!.emit('channelReplaced', oldChannel, newChannel);
-
-      await (broker as any).rewireConsumersOnChannel(mockChannel, newChannel);
+      await once(consumer, 'resume');
 
       sinon.assert.calledOnce(newChannel.consume);
       expect((broker as any)._channelConsumers.get(newChannel)).to.include(consumer);

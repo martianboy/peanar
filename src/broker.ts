@@ -157,6 +157,7 @@ export default class NodeAmqpBroker {
       });
       this.pool.on('channelReplaced', (ch, newCh) => {
         this.rewireConsumersOnChannel(ch, newCh).catch(ex => {
+          // FIXME: don't leave the broker in a broken state
           console.error(ex);
         });
       });
@@ -169,6 +170,7 @@ export default class NodeAmqpBroker {
 
       conn.once('close', this.onClose);
 
+      // TODO: consider not exposing connection
       return conn;
     }
 
@@ -191,7 +193,13 @@ export default class NodeAmqpBroker {
     }
   }
 
-  ready() {
+  /**
+   * Awaits connection establishment
+   * @throws {PeanarAdapterError} if not connected or in the process of connecting
+   * @todo use a state machine to handle connection state (#68)
+   * @todo return a Promise<void> instead of Promise<unknown>
+   */
+  ready(): Promise<unknown> {
     if (!this._connectPromise) {
       throw new PeanarAdapterError('Not connected!');
     }
@@ -201,13 +209,11 @@ export default class NodeAmqpBroker {
 
   /**
    * Awaits pool closure and then closes the connection
-   * @returns {Promise<void>}
-   *
-   * @todo: use a state machine to handle connection state
+   * @todo: use a state machine to handle connection state (#68)
    * @todo: support shutdown timeout
    */
   public async shutdown(): Promise<void> {
-    // FIXME: replace this with a proper state machine
+    // FIXME: replace this with a proper state machine (#68)
     if (!this.conn || !this.pool) {
       debug('shutdown() called when not connected');
       return;
@@ -263,6 +269,8 @@ export default class NodeAmqpBroker {
   }
 
   private async resurrectAllConsumers() {
+    // Expectation here is that the pool is already connected and have
+    // the same number of channels as before
     await Promise.all(this.pool!.mapOver([...this._channelConsumers.keys()], (newCh, oldCh) => this.rewireConsumersOnChannel(oldCh, newCh)))
   }
 
@@ -275,11 +283,16 @@ export default class NodeAmqpBroker {
     }
   }
 
+  /**
+   * Recreates consumers on a new channel in the same way as the old one
+   * @todo properly handle errors, e.g. if the channel is closed when we try to consume
+   */
   private async rewireConsumersOnChannel(ch: Channel, newCh: Channel) {
     const set = this._channelConsumers.get(ch);
     if (!set || set.size < 1) return;
 
     for (const consumer of set) {
+      // FIXME (#67): handle potential errors
       const res = await newCh.consume(consumer.queue, (msg: ConsumeMessage | null) => {
         if (msg && consumer) {
           consumer.handleDelivery(msg);

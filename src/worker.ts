@@ -92,7 +92,6 @@ export default class PeanarWorker extends Transform {
 
   onChannelClosed = (err: CloseReason) => {
     this._channel_lost = true;
-    // if (this.activeJob) this.activeJob.cancel(err || 'Channel closed');
   }
 
   async shutdown(timeout?: number) {
