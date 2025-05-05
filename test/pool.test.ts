@@ -176,15 +176,18 @@ describe('Pool', () => {
       context('on a closed pool', () => {
         before(async () => {
           pool = new ChannelPool(conn, 5, 1);
-          await pool.open();
-          await pool.close();
         });
-
-        it('should throw an error', async () => {
+        it('should throw an error in initial state', async () => {
           const [_, err] = await Try.catch(() => pool.acquire());
 
           expect(err).to.be.instanceOf(PeanarPoolError);
           expect(err?.message).to.equal('acquire() called before pool is open.');
+        });
+        it('should throw an error after an open and close', async () => {
+          await pool.open();
+          await pool.close();
+
+          expect(() => pool.acquire()).to.throw('acquire() called before pool is open.');
         });
       });
       context('on an open pool', () => {
@@ -243,7 +246,7 @@ describe('Pool', () => {
           release();
           expect(pool.size).to.equal(0);
           expect(pool.queueLength).to.equal(1);
-          expect(release).to.throw('Release called for an acquisition request that has already been released.');
+          expect(() => release()).to.throw('Release called for an acquisition request that has already been released.');
           expect(pool.size).to.equal(0);
           expect(pool.queueLength).to.equal(1);
 
@@ -279,6 +282,37 @@ describe('Pool', () => {
         expect(err).to.instanceOf(Error);
         expect(err?.message).to.equal('test');
         expect(pool.size).to.equal(5);
+      });
+
+      it('should handle hundreds of concurrent acquireAndRun() calls without unhandled rejections', async () => {
+        const getAllChannels = async () => {
+          const channels: amqplib.Channel[] = [];
+          for (let i = 0; i < pool.capacity; i++) {
+            await pool.acquireAndRun(async (ch) => {
+              channels.push(ch);
+            });
+          }
+          return channels;
+        }
+
+        const channelsBefore = await getAllChannels();
+        const numCalls = 1000;
+        const promises: Promise<any>[] = [];
+        for (let i = 0; i < numCalls; i++) {
+          promises.push(pool.acquireAndRun(async (ch) => {
+            expect(ch).to.be.ok;
+            return 'test';
+          }));
+        }
+        await Promise.all(promises);
+
+        const channelsAfter = await getAllChannels();
+        expect(channelsAfter).to.have.members(channelsBefore);
+
+        await retry(15, 500, async () => {
+          const channels = await getChannelsOnConnection(rabbitmqConnectionInfo.name);
+          expect(channels.length).to.equal(pool.capacity);
+        });
       });
     });
   });

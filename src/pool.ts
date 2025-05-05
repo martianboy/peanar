@@ -76,6 +76,10 @@ export class ChannelPool extends EventEmitter {
     }
   }
 
+  get capacity(): number {
+    return this._capacity;
+  }
+
   get size(): number {
     return this._pool.length;
   }
