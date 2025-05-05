@@ -128,6 +128,10 @@ export function closeAllUserConnection(user: string) {
   });
 }
 
+export function getVhostConnections(vhost: string): Promise<RabbitMQConnection[]> {
+  return getList({ path: `/vhosts/${vhost}/connections` });
+}
+
 export function getQueues(options: { enable_queue_totals?: boolean; disable_stats?: boolean } = {}): Promise<any[]> {
   const qs = Object.fromEntries(Object.entries(options).map(([k, v]) => {
     return [k, v.toString()];
@@ -166,4 +170,10 @@ export function getVhostExchanges(vhost: string): Promise<any[]> {
 
 export function getBindings(vhost: string, queue: string): Promise<any[]> {
   return getList({ path: `/queues/${vhost}/${queue}/bindings`});
+}
+
+export async function getChannelsOnConnection(name: string): Promise<any[]> {
+  const resp = await request({ path: `/connections/${encodeURIComponent(name)}/channels` });
+  const body = await resp.json() as any[];
+  return body;
 }

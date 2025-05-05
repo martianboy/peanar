@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { setTimeout, setTimeout as timeout } from 'timers/promises';
+import { setTimeout as timeout } from 'timers/promises';
 import { once } from 'events';
 import { rejects } from 'assert';
 
@@ -12,7 +12,7 @@ import { brokerOptions } from './config';
 import Broker from '../src/broker';
 
 import * as RabbitmqHttpClient from './rabbitmq-http/client';
-import { retry, Try } from './utils';
+import { createTestVhost, randomName, retry, Try } from './utils';
 
 class TestBroker extends Broker {
   constructor(options: any) {
@@ -56,8 +56,10 @@ class TestBroker extends Broker {
 
 describe('Broker', () => {
   let broker: TestBroker;
-  const vhost = `test-${crypto.randomBytes(5).toString('hex')}`;
   let nodes: string[] = [];
+
+  const vhost = createTestVhost();
+
   beforeEach(async function() {
     broker = new TestBroker(brokerOptions);
     broker.vhost = vhost;
@@ -69,18 +71,7 @@ describe('Broker', () => {
     nodes = (await RabbitmqHttpClient.getNodes()).map(node => node.name);
   });
 
-  function recreateVhost() {
-    before(async function() {
-      await RabbitmqHttpClient.createVhost(vhost);
-    });
-    after(async function() {
-      await RabbitmqHttpClient.deleteVhost(vhost);
-    });
-  }
-
   describe('Connection', function() {
-    recreateVhost();
-
     it('can access RabbitMQ', async () => {
       expect(brokerOptions.connection!.host, 'RABBITMQ_HOST').not.to.be.undefined;
       const broker = new Broker(brokerOptions);
@@ -168,62 +159,63 @@ describe('Broker', () => {
   });
 
   describe('Topology', function() {
-    recreateVhost();
+    const q1 = randomName('q1');
+    const e1 = randomName('e1');
 
     it('can declare and redeclare queues', async () => {
       await broker.queues([{
-        name: 'q1',
+        name: q1,
         auto_delete: false,
         durable: true,
         exclusive: false
       }]);
 
       await broker.queues([{
-        name: 'q1',
+        name: q1,
         auto_delete: false,
         durable: true,
         exclusive: false
       }]);
 
       const queuesResp = await RabbitmqHttpClient.getVhostQueues(vhost);
-      expect(queuesResp.map(q => q.name)).to.have.length(1).and.to.include('q1');
+      expect(queuesResp.map(q => q.name)).to.have.length(1).and.to.include(q1);
     });
 
     it('can declare and redeclare exchanges', async () => {
       await broker.exchanges([{
-        name: 'e1',
+        name: e1,
         durable: true,
         type: 'direct',
       }]);
 
       await broker.exchanges([{
-        name: 'e1',
+        name: e1,
         durable: true,
         type: 'direct',
       }]);
 
-      expect((await RabbitmqHttpClient.getVhostExchanges(vhost)).map(q => q.name)).to.include('e1');
+      expect((await RabbitmqHttpClient.getVhostExchanges(vhost)).map(q => q.name)).to.include(e1);
     });
 
     it('can bind exchanges to queues', async () => {
       await broker.bindings([{
-        exchange: 'e1',
-        queue: 'q1',
+        exchange: e1,
+        queue: q1,
         routing_key: '#'
       }]);
 
-      const bindings = await RabbitmqHttpClient.getBindings(vhost, 'q1');
+      const bindings = await RabbitmqHttpClient.getBindings(vhost, q1);
       const nonDefault = bindings.find(b => b.source !== '');
       expect(nonDefault).not.to.be.undefined;
-      expect(nonDefault.source).to.be.equal('e1');
-      expect(nonDefault.destination).to.be.equal('q1');
+      expect(nonDefault.source).to.be.equal(e1);
+      expect(nonDefault.destination).to.be.equal(q1);
       expect(nonDefault.routing_key).to.be.equal('#');
     });
 
     it('binding throws an error if the exchange is not declared', async () => {
       const [_, err] = await Try.catch(() => broker.bindings([{
         exchange: 'non_existent_exchange',
-        queue: 'q1',
+        queue: q1,
         routing_key: '#'
       }]));
 
@@ -234,7 +226,7 @@ describe('Broker', () => {
 
     it('binding throws an error if the queue is not declared', async () => {
       const [_, err] = await Try.catch(() => broker.bindings([{
-        exchange: 'e1',
+        exchange: e1,
         queue: 'non_existent_queue',
         routing_key: '#'
       }]));
@@ -246,7 +238,8 @@ describe('Broker', () => {
   });
 
   describe('Publishing', function() {
-    recreateVhost();
+    const q1 = randomName('q1');
+    const e1 = randomName('e1');
 
     async function publish(args: IMessage<unknown>) {
       const payload = { username: 'martianboy' };
@@ -261,9 +254,9 @@ describe('Broker', () => {
           resolveFn = resolve;
         });
 
-        const consumer = await ch.consume('q1', msg => resolveFn(msg));
+        const consumer = await ch.consume(q1, msg => resolveFn(msg));
 
-        const delivery = await Promise.race([promise, setTimeout(1000)]);
+        const delivery = await Promise.race([promise, timeout(1000)]);
         await ch.cancel(consumer.consumerTag);
         ch.ackAll();
 
@@ -275,36 +268,36 @@ describe('Broker', () => {
 
     it('can publish a message to an exchange', async function() {
       await broker.queues([{
-        name: 'q1',
+        name: q1,
         auto_delete: false,
         durable: false,
         exclusive: false
       }]);
       await broker.exchanges([{
-        name: 'e1',
+        name: e1,
         durable: false,
         type: 'direct',
       }]);
       await broker.bindings([{
-        exchange: 'e1',
-        queue: 'q1',
+        exchange: e1,
+        queue: q1,
         routing_key: '#'
       }]);
 
       await publish({
         routing_key: '#',
-        exchange: 'e1',
+        exchange: e1,
       });
     });
     it('can publish a message to the default exchange', async function() {
       await broker.queues([{
-        name: 'q1',
+        name: q1,
         auto_delete: false,
         durable: false,
         exclusive: false
       }]);
       await publish({
-        routing_key: 'q1',
+        routing_key: q1,
       });
     });
 
@@ -339,10 +332,10 @@ describe('Broker', () => {
   });
 
   describe('Consuming', function() {
-    recreateVhost();
+    const q1 = randomName('q1');
 
     before(async function() {
-      await RabbitmqHttpClient.upsertQueue('q1', vhost, nodes[0], {
+      await RabbitmqHttpClient.upsertQueue(q1, vhost, nodes[0], {
         auto_delete: false,
         durable: false,
       });
@@ -353,8 +346,8 @@ describe('Broker', () => {
     });
 
     it('can consume from a queue', async function() {
-      const consumer = await broker.consume('q1');
-      const { consumerCount } = await broker.pool!.acquireAndRun(ch => ch.checkQueue('q1'));
+      const consumer = await broker.consume(q1);
+      const { consumerCount } = await broker.pool!.acquireAndRun(ch => ch.checkQueue(q1));
       expect(consumerCount).to.be.eq(1);
 
       expect(broker.channelConsumers.size).to.eq(1);
@@ -370,19 +363,19 @@ describe('Broker', () => {
     it('doesn\'t rewire if no consumers are registered', async function() {
       // cause a channel error
       await broker.pool!.acquireAndRun(async ch => {
-        return ch.assertQueue('q1', { exclusive: true });
+        return ch.assertQueue(q1, { exclusive: true });
       }).then(() => {
         throw new Error('Expected assertQueue to fail!');
       }, () => {});
     });
 
     it('can rewire consumers to a new channel when one is lost', async function() {
-      const consumers = await Promise.all(broker.consumeOver(['q1', 'q1', 'q1']));
+      const consumers = await Promise.all(broker.consumeOver([q1, q1, q1]));
       expect(consumers).to.have.length(3);
 
       // cause a channel error
       await broker.pool!.acquireAndRun(async ch => {
-        return ch.assertQueue('q1', { exclusive: true });
+        return ch.assertQueue(q1, { exclusive: true });
       }).then(() => {
         throw new Error('Expected assertQueue to fail!');
       }, () => {});
@@ -396,9 +389,9 @@ describe('Broker', () => {
     });
 
     it('can consume from multiple queues', async function() {
-      const consumers = await Promise.all(broker.consumeOver(['q1', 'q1', 'q1']));
+      const consumers = await Promise.all(broker.consumeOver([q1, q1, q1]));
       const { consumerCount } = await broker.pool!.acquireAndRun(async ch => {
-        return await ch.checkQueue('q1');
+        return await ch.checkQueue(q1);
       });
 
       expect(consumerCount).to.be.eq(3);
@@ -407,11 +400,13 @@ describe('Broker', () => {
   });
 
   describe('Error handling', function() {
+    const q1 = randomName('q1');
+
     describe('#consume()', function() {
       it('throws when not connected', async function() {
         const broker = new Broker(brokerOptions);
         try {
-          await broker.consume('q1');
+          await broker.consume(q1);
           throw new Error('Expected an error but none was thrown.');
         } catch (ex) {
           return;

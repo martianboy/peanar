@@ -80,11 +80,20 @@ export class ChannelPool extends EventEmitter {
     return this._pool.length;
   }
 
+  get queueLength(): number {
+    return this._queue.length;
+  }
+
   get isOpen(): boolean {
     return this._isOpen;
   }
 
   async open(): Promise<void> {
+    if (this._isOpen) {
+      throw new PeanarPoolError('open() called on an already open pool.');
+    }
+
+    debug('opening the pool');
     this._isOpen = true;
 
     debug('initializing the pool');
@@ -106,7 +115,8 @@ export class ChannelPool extends EventEmitter {
     debug('closing all channels');
     if (this._isOpen) {
       this._isOpen = false;
-      for (const ch of this._pool) {
+      let ch: Channel | undefined;
+      while (ch = this._pool.shift()) {
         ch.removeAllListeners('close');
         ch.removeAllListeners('error');
         await ch.close();
@@ -147,12 +157,17 @@ export class ChannelPool extends EventEmitter {
     return arr.map(item => this.acquireAndRun(ch => fn(ch, item)));
   }
 
+  /**
+   * Acquires a channel from the pool and runs the provided function on it.
+   * The channel is released back to the pool after the function completes.
+   * @param fn function to run on the channel
+   * @returns the result of the function
+   * @throws if the function throws
+   * @throws {PeanarPoolError} if the pool is closed
+   */
   async acquireAndRun<R>(fn: (ch: Channel) => Promise<R>): Promise<R> {
     const { channel, release } = await this.acquire();
-    const result = await fn(channel);
-    release();
-
-    return result;
+    return fn(channel).finally(release);
   }
 
   async onChannelClose(ch: Channel) {
@@ -194,7 +209,12 @@ export class ChannelPool extends EventEmitter {
     return ch;
   }
 
-  releaser(ch: Channel) {
+  releaser(ch: Channel, req: { released: boolean }) {
+    if (req.released) {
+      throw new PeanarPoolError('Release called for an acquisition request that has already been released.');
+    }
+
+    req.released = true;
     this._pool.push(ch);
 
     if (this._releaseResolvers.has(ch)) {
@@ -214,7 +234,7 @@ export class ChannelPool extends EventEmitter {
 
       dispatcher.resolve({
         channel: ch,
-        release: this.releaser.bind(this, ch)
+        release: this.releaser.bind(this, ch, { released: false }),
       });
     }
   }
