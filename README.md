@@ -20,8 +20,8 @@ Peanar has been running in production at rechat.com for over a year without any
 major problems so far. While the base featureset can satisfy a big chunk of
 real-world requirements, there's always room for more!
 
-* Improve on documentation
-* Add tests
+* Improve documentation
+* Add tests (In progress)
 * Add a persistence layer for jobs
 * Support transactional job scheduling
 * Support dynamic delayed scheduling
