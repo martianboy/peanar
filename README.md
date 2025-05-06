@@ -79,6 +79,75 @@ await sendEmail({
 process.on('SIGTERM', () => app.shutdown(15_000));
 ```
 
+### Real-world example
+
+> See the [examples](./examples) folder for a more complete example of a job processing app.
+
+One real-world use-case is a typical web app that needs to send emails in the background. The app can use Peanar to define a job that sends emails, and then use the `app.job()` method to create an enqueue function. This function can be called whenever an email needs to be sent, and a worker process can be started to process the requests and send the emails.
+
+On the web server:
+
+```ts
+import PeanarApp from 'peanar';
+
+const app = new PeanarApp({
+  connection: 'amqp://localhost',
+});
+
+const sendEmail = app.job({
+  name: 'sendEmail',
+  queue: 'mailer',
+  // importantly, the publisher doesn't need to know about the handler implementation, only its signature
+  handler: async (payload: { to: string; subject: string; html: string }) => {},
+  max_retries: 5,
+  retry_delay: 30_000,
+});
+
+// when a user signs up, send them a welcome email
+app.post('/signup', async (req, res) => {
+  const { email } = req.body;
+  await sendEmail({
+    to: email,
+    subject: 'Welcome!',
+    html: '<h1>Hello there \u270c\ufe0f</h1>',
+  });
+  res.status(200).send('OK');
+});
+```
+
+On the worker:
+
+```ts
+import PeanarApp from 'peanar';
+import { EmailService } from './email-service';
+
+const app = new PeanarApp({
+  connection: 'amqp://localhost',
+});
+
+const sendEmail = app.job({
+  name: 'sendEmail',
+  queue: 'mailer',
+
+  // the worker needs to know about the handler implementation
+  handler: async (payload: { to: string; subject: string; html: string }) => {
+    await EmailService.send(payload);
+  },
+  max_retries: 5,
+  retry_delay: 30_000,
+});
+
+// create AMQP resources
+await app.declareAmqResources();
+
+// start workers
+await app.worker({
+  queues: ['mailer'],
+  concurrency: 3, // 3 consumers on the queue, will process 3 jobs in parallel
+  prefetch: 1,
+});
+```
+
 ---
 
 ## Concepts at a glance
@@ -161,7 +230,7 @@ Low‑level helper to enqueue a job by its `name`. Useful when the enqueue funct
 
 Temporarily stops or resumes consumers of a queue without shutting down the entire app. Handy for maintenance windows.
 
-#### `app.shutdown(timeoutMs?)`
+#### `app.shutdown(timeoutMs?): Promise<void>`
 
 Gracefully shuts down consumers and workers, waits `timeoutMs` (default: unlimited) for in‑flight jobs, then closes the AMQP connection.
 
