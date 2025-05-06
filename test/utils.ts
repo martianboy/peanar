@@ -1,3 +1,7 @@
+import crypto from 'crypto';
+
+import { createVhost, deleteVhost } from './rabbitmq-http/client';
+
 export type RetryOpts = {
   // do not defer process exit by waiting on resulting Timeout
   unref?: boolean
@@ -64,4 +68,20 @@ export function controllablePromise<T>(): {
   });
 
   return { resolve, reject, promise };
+}
+
+export function randomName(prefix: string, length = 5): string {
+  const randomString = crypto.randomBytes(length).toString('hex');
+  return `${prefix}-${randomString}`;
+}
+
+export function createTestVhost(vhost: string = randomName('test')): string {
+  before(async function() {
+    await createVhost(vhost);
+  });
+  after(async function() {
+    await deleteVhost(vhost);
+  });
+
+  return vhost;
 }
