@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import sinon, { SinonStub } from 'sinon';
 import { EventEmitter } from 'events';
 import { ChannelPool, ChannelCreator } from './pool';
+import { controllablePromise, Try } from '../test/utils';
 
 /**
  * A minimal fake Channel implementation.
@@ -12,10 +13,12 @@ class FakeChannel extends EventEmitter {
   public prefetch: SinonStub;
   public close: SinonStub;
 
-  constructor () {
+  constructor (public id: number) {
     super();
     this.prefetch = sinon.stub().resolves();
-    this.close = sinon.stub().resolves();
+    this.close = sinon.stub().callsFake(async () => {
+      this.emit('close');
+    });
   }
 }
 
@@ -25,7 +28,8 @@ function createFakeConn (): {
   createChannelSpy: SinonStub;
 } {
   const conn = new EventEmitter() as ChannelCreator & EventEmitter;
-  const createChannelSpy = sinon.stub().callsFake(async () => new FakeChannel());
+  let channelCount = 0;
+  const createChannelSpy = sinon.stub().callsFake(async () => new FakeChannel(channelCount++));
   // @ts-ignore – we are adding the method dynamically
   conn.createChannel = createChannelSpy;
   return { conn, createChannelSpy };
@@ -161,6 +165,73 @@ describe('ChannelPool', () => {
       ch.emit('error', err);
 
       expect(lostSpy.calledOnceWithExactly(ch, err)).to.be.true;
+    });
+
+    it('replaces dead channels on error', async () => {
+      const { conn, createChannelSpy } = createFakeConn();
+      const pool = new ChannelPool(conn, 2);
+      await pool.open();
+      const oldChannels: FakeChannel[] = await Promise.all(createChannelSpy.getCalls().map(c => c.returnValue));
+      createChannelSpy.resetHistory(); // reset call count
+
+      // create two promises (both resolving a new FakeChannel instance) that will resolve in reverse order
+      const p1 = controllablePromise<FakeChannel>();
+      const p2 = controllablePromise<FakeChannel>();
+      createChannelSpy.onFirstCall().callsFake(() => p1.promise);
+      createChannelSpy.onSecondCall().callsFake(() => p2.promise);
+
+      // close old channels
+      oldChannels.forEach(ch => ch.close());
+
+      expect(createChannelSpy.calledTwice).to.be.true;
+
+      // resolve the promises in reverse order
+      const newChannels = [new FakeChannel(1001), new FakeChannel(1002)];
+
+      p2.resolve(newChannels[1]);
+      await new Promise(r => setImmediate(r));
+      expect((pool as any)._pool).to.have.members([oldChannels[0], newChannels[1]]);
+
+      p1.resolve(newChannels[0]);
+      await new Promise(r => setImmediate(r));
+      expect((pool as any)._pool).to.have.members(newChannels);
+    });
+
+    it('release() does not throw if called on a closed channel', async () => {
+      const { conn } = createFakeConn();
+      const pool = new ChannelPool(conn, 1);
+      await pool.open();
+
+      const { channel, release } = await pool.acquire();
+      expect(pool.size).to.equal(0);
+
+      // simulate channel close
+      channel.close();
+      const [ _, err ] = await Try.catch(async () => release());
+      expect(err).to.be.null;
+    });
+
+    it('does not replace lost channels if pool is closed', async () => {
+      const { conn, createChannelSpy } = createFakeConn();
+      const pool = new ChannelPool(conn, 1);
+      await pool.open();
+
+      const oldCh = (await createChannelSpy.getCall(0).returnValue) as FakeChannel;
+      createChannelSpy.resetHistory(); // reset call count
+
+      const lostSpy = sinon.spy();
+      pool.on('channelLost', lostSpy);
+
+      const closePromise = pool.close();                     // close the pool
+      oldCh.emit('error', new Error('boom')); // simulate channel error
+
+      await new Promise(r => setImmediate(r));   // give dispatch loop a tick
+
+      expect(createChannelSpy.called).to.be.false;
+      expect(lostSpy.calledOnce).to.be.true;
+
+      // wait for close to finish
+      await closePromise;
     });
   });
 
