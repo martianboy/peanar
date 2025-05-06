@@ -48,7 +48,7 @@ export class ChannelPool extends EventEmitter {
     this._conn.once('error', this.softCleanUp);
   }
 
-  softCleanUp = () => {
+  private softCleanUp = () => {
     debug('soft cleanup');
     this._isOpen = false;
 
@@ -57,7 +57,7 @@ export class ChannelPool extends EventEmitter {
     }
   };
 
-  hardCleanUp = () => {
+  private hardCleanUp = () => {
     debug('hard cleanup');
     this.softCleanUp();
 
@@ -174,7 +174,8 @@ export class ChannelPool extends EventEmitter {
     return fn(channel).finally(release);
   }
 
-  async onChannelClose(ch: Channel) {
+  private async onChannelClose(ch: Channel) {
+    this._releaseResolvers.get(ch)?.();
     this._acquisitions.delete(ch);
     this._releaseResolvers.delete(ch);
 
@@ -196,24 +197,24 @@ export class ChannelPool extends EventEmitter {
     }
   }
 
-  onChannelError(ch: Channel, err: unknown) {
+  private onChannelError(ch: Channel, err: unknown) {
     console.error(err);
     this.emit('channelLost', ch, err)
   }
 
-  async openChannel(): Promise<Channel> {
+  private async openChannel(): Promise<Channel> {
     const ch = await this._conn.createChannel();
     ch.once('close', this.onChannelClose.bind(this, ch));
     ch.once('error', this.onChannelError.bind(this, ch));
 
     if (this.prefetch) await ch.prefetch(this.prefetch, false);
 
-    setImmediate(() => this.dispatchChannels());
+    queueMicrotask(() => this.dispatchChannels());
 
     return ch;
   }
 
-  releaser(ch: Channel, req: { released: boolean }) {
+  private releaser(ch: Channel, req: { released: boolean }) {
     if (req.released) {
       throw new PeanarPoolError('Release called for an acquisition request that has already been released.');
     }
@@ -229,7 +230,7 @@ export class ChannelPool extends EventEmitter {
     this.dispatchChannels();
   }
 
-  dispatchChannels() {
+  private dispatchChannels() {
     while (this._queue.length > 0 && this._pool.length > 0) {
       const dispatcher = this._queue.shift()!;
       const ch = this._pool.shift()!;

@@ -316,4 +316,80 @@ describe('Pool', () => {
       });
     });
   });
-}).timeout(-1);
+
+  describe('Event Emission & Observability', () => {
+    before(async () => {
+      pool = new ChannelPool(conn, 5, 1);
+    });
+    after(async () => {
+      await pool.close().catch(() => {});
+    });
+
+    it('should emit an open event when the pool is opened', async () => {
+      const emitOpenPromise = once(pool, 'open');
+      await pool.open();
+      await emitOpenPromise;
+    });
+
+    it('should emit a close event when the pool is closed', async () => {
+      const emitClosePromise = once(pool, 'close');
+      await pool.close();
+      await emitClosePromise;
+    });
+
+    it('should emit a closing event when the pool is closing', async () => {
+      const emitClosingPromise = once(pool, 'closing');
+      await pool.close();
+      await emitClosingPromise;
+    });
+
+    it('should emit a channelLost and a channelReplaced event when a channel is closed by server', async () => {
+      await pool.open();
+
+      const emitChannelLostPromise = once(pool, 'channelLost');
+      const emitChannelReplacedPromise = once(pool, 'channelReplaced');
+
+      // Acquire a channel and cause a channel-level close with an invalid operation
+      let dyingChannel: amqplib.Channel | undefined;
+      const [_, err] = await Try.catch(() => pool.acquireAndRun(async (ch) => {
+        dyingChannel = ch;
+        await ch.consume('non-existent-queue', () => {}, { noAck: true });
+      }));
+      expect(err).to.be.instanceOf(Error);
+      expect(err?.message).to.include('NOT_FOUND - no queue');
+
+      // Wait for the channelLost event to be emitted
+      const [lostCh, lostErr] = await emitChannelLostPromise;
+      expect(lostCh).to.be.equal(dyingChannel);
+      expect(lostErr).to.be.instanceOf(Error);
+      expect(lostErr?.message).to.include('NOT_FOUND - no queue');
+
+      // Wait for the channelReplaced event to be emitted
+      const [oldCh, newCh] = await emitChannelReplacedPromise;
+      expect(oldCh).to.be.ok;
+      expect(newCh).to.be.ok;
+      expect(oldCh).to.not.equal(newCh);
+      expect(pool.size).to.equal(5);
+    });
+  });
+
+  describe('Channel Failure & Recovery', () => {
+    before(async () => {
+      pool = new ChannelPool(conn, 5, 1);
+    });
+    after(async () => {
+      await pool.close().catch(() => {});
+    });
+
+    // Channel closes while pool is closing: Replacement is not attempted (size shrinks); close() still resolves cleanly.
+    it('should not replace a channel that closes while the pool is closing', async () => {
+      /**
+       * 1. Open the pool
+       * 2. Acquire a channel
+       * 3. Close the pool, don't await for it to finish
+       * 4. Cause a channel-level close with an invalid operation: consume on a non-existent queue
+       * 5.
+       */
+    });
+  });
+});
