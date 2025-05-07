@@ -5,10 +5,9 @@ import util from 'util';
 
 import { Transform, TransformCallback } from 'stream';
 import PeanarApp from './app';
-import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 import PeanarJob from './job';
 import { PeanarInternalError, PeanarJobCancelledError } from './exceptions';
-import { IPeanarRequest, IPeanarJob } from './types';
+import { IPeanarRequest, IPeanarJob, IDelivery } from './types';
 import { Channel } from 'amqplib';
 
 export type IWorkerResult = {
