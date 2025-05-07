@@ -85,6 +85,7 @@ jobs:
       - name: Start RabbitMQ (via Docker)
         run: |
           docker run -d --name rabbitmq \
+            -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
             -v "$PWD/certs":/etc/rabbitmq/certs:ro \
             -v "$PWD/rabbitmq.conf":/etc/rabbitmq/rabbitmq.conf:ro \
             -p 5671:5671 -p 15671:15671 -p 15672:15672 \
