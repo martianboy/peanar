@@ -102,7 +102,7 @@ jobs:
           set -e
           for i in {1..5}; do
             if docker exec rabbitmq rabbitmq-diagnostics -q ping; then
-              if curl -vI "http://rabbitmq:15672/api/auth"; then
+              if curl -vI -u guest:guest "http://localhost:15672/api/auth"; then
                 echo "RabbitMQ is ready"
                 exit 0
               fi
@@ -119,7 +119,7 @@ jobs:
 
       - name: Run the test suite
         env:
-          RABBITMQ_HOST: rabbitmq          # inside the runner
+          RABBITMQ_HOST: localhost          # inside the runner
           RABBITMQ_PORT: 5671               # TLS listener
           NODE_TLS_REJECT_UNAUTHORIZED: '0' # ignore the self‑signed CA (tests only!)
         run: npm run test:e2e
