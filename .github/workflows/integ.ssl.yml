@@ -47,7 +47,8 @@ jobs:
             -days    365
 
           # For RabbitMQ the key file must be 0600
-          # chmod 600 certs/server.key
+          chmod 644 certs/*
+          chmod 755 certs
 
           # list the certs
           echo $PWD
