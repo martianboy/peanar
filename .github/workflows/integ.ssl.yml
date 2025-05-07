@@ -102,7 +102,7 @@ jobs:
           set -e
           for i in {1..5}; do
             if docker exec rabbitmq rabbitmq-diagnostics -q ping; then
-              if curl -vI "https://localhost:15671/api/auth"; then
+              if curl -vkI "https://localhost:15671/api/auth"; then
                 echo "RabbitMQ is ready"
                 exit 0
               fi
