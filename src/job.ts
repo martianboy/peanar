@@ -3,8 +3,9 @@ const debug = debugFn('peanar:job');
 
 import { EventEmitter } from "events";
 import { PeanarAdapterError, PeanarJobError, PeanarJobCancelledError, PeanarInternalError } from "./exceptions";
-import PeanarApp, { IPeanarRequest, IPeanarJobDefinition } from "./app";
+import PeanarApp from "./app";
 import { Channel } from 'amqplib';
+import { IPeanarRequest, IPeanarJobDefinition } from "./types";
 
 export default class PeanarJob extends EventEmitter {
   public id: string;

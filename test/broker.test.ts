@@ -6,7 +6,7 @@ import { rejects } from 'assert';
 import sinon from 'sinon';
 import { expect } from 'chai';
 import amqplib, { ChannelModel } from 'amqplib';
-import { IMessage } from 'ts-amqp/dist/interfaces/Basic';
+import { IMessage } from '../src/types';
 
 import { brokerOptions } from './config';
 import Broker from '../src/broker';
