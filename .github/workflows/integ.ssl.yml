@@ -102,7 +102,10 @@ jobs:
           set -e
           for i in {1..5}; do
             if docker exec rabbitmq rabbitmq-diagnostics -q ping; then
-              exit 0
+              if curl -I "http://127.0.0.1:15672/api/auth"; then
+                echo "RabbitMQ is ready"
+                exit 0
+              fi
             fi
             sleep 3
           done
