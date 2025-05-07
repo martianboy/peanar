@@ -89,7 +89,7 @@ jobs:
             -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
             -v "$PWD/certs":/etc/rabbitmq/certs:ro \
             -v "$PWD/rabbitmq.conf":/etc/rabbitmq/rabbitmq.conf:ro \
-            -p 5671:5671 -p 15672:15672 \
+            -p 5671:5671 -p 15671:15671 -p 15672:15672 \
             rabbitmq:3-management
           # cat /etc/rabbitmq/certs/server.key from inside the container
           docker exec rabbitmq ls -l /etc/rabbitmq/certs
@@ -102,7 +102,7 @@ jobs:
           set -e
           for i in {1..5}; do
             if docker exec rabbitmq rabbitmq-diagnostics -q ping; then
-              if curl -vI -u guest:guest "http://localhost:15672/api/auth"; then
+              if curl -vI "http://localhost:15672/api/auth"; then
                 echo "RabbitMQ is ready"
                 exit 0
               fi
@@ -121,6 +121,8 @@ jobs:
         env:
           RABBITMQ_HOST: localhost          # inside the runner
           RABBITMQ_PORT: 5671               # TLS listener
+          RABBITMQ_MANAGEMENT_PORT: 15671   # TLS management UI
+          RABBITMQ_SSL_MODE: 'true'              # enable TLS
           NODE_TLS_REJECT_UNAUTHORIZED: '0' # ignore the self‑signed CA (tests only!)
         run: npm run test:e2e
 

@@ -2,8 +2,10 @@ import debugFn from 'debug';
 const debug = debugFn('rabbitmq-http');
 
 const HOST = process.env.RABBITMQ_HOST ?? '127.0.0.1';
-const PORT = 15672;
-const BASE_URL = `http://${HOST}:${PORT}/api`;
+const PORT = process.env.RABBITMQ_MANAGEMENT_PORT ?? 15672;
+const SSL_MODE = process.env.RABBITMQ_SSL_MODE === 'true';
+const MANAGEMENT_API_SCHEME = SSL_MODE ? 'https' : 'http';
+const BASE_URL = `${MANAGEMENT_API_SCHEME}://${HOST}:${PORT}/api`;
 const credentials = Buffer.from('guest:guest').toString('base64');
 
 interface FetchOptions {
