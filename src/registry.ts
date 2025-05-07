@@ -1,7 +1,13 @@
-import { IPeanarJobDefinition, IPeanarJobDefinitionInput } from './app';
 import { PeanarInternalError } from './exceptions';
-import { IExchange, EExchangeType } from 'ts-amqp/dist/interfaces/Exchange';
-import { IBinding, IQueue, IQueueArgs } from 'ts-amqp/dist/interfaces/Queue';
+import {
+  EExchangeType,
+  IBinding,
+  IExchange,
+  IPeanarJobDefinition,
+  IPeanarJobDefinitionInput,
+  IQueue,
+  IQueueArgs
+} from './types';
 
 export default class Registry {
   private _jobs: Map<string, IPeanarJobDefinition> = new Map();

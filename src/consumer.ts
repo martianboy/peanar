@@ -1,6 +1,6 @@
 import { Readable } from 'stream';
 import { ConsumeMessage, Replies } from 'amqplib';
-import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
+import { IDelivery } from './types';
 
 export interface ConsumerCanceller {
   cancel: (tag: string) => Promise<Replies.Empty>;

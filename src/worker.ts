@@ -4,11 +4,11 @@ const debug = debugFn('peanar:worker');
 import util from 'util';
 
 import { Transform, TransformCallback } from 'stream';
-import PeanarApp, { IPeanarRequest, IPeanarJob } from './app';
+import PeanarApp from './app';
 import { IDelivery } from 'ts-amqp/dist/interfaces/Basic';
 import PeanarJob from './job';
 import { PeanarInternalError, PeanarJobCancelledError } from './exceptions';
-import CloseReason from 'ts-amqp/dist/utils/CloseReason';
+import { IPeanarRequest, IPeanarJob } from './types';
 import { Channel } from 'amqplib';
 
 export type IWorkerResult = {
@@ -90,7 +90,7 @@ export default class PeanarWorker extends Transform {
     this.log('channel changed!');
   }
 
-  onChannelClosed = (err: CloseReason) => {
+  onChannelClosed = () => {
     this._channel_lost = true;
   }
 
