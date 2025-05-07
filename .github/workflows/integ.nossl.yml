@@ -1,12 +1,11 @@
-name: Peanar
+name: Integration Tests
 on: push
 
 jobs:
   # Label of the container job
-  container-job:
+  integration-tests-no-ssl-mode:
     # Containers must run in Linux based operating systems
     runs-on: ubuntu-latest
-    # Docker Hub image that `container-job` executes in
     container: node:18
 
     # Service containers to run with `container-job`

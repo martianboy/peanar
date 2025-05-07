@@ -15,7 +15,8 @@ import {
 import Consumer from './consumer';
 
 interface IBrokerOptions {
-  connection?: IConnectionParams;
+  connection?: string | IConnectionParams;
+  socketOptions?: any;
   poolSize: number;
   prefetch?: number;
 }
@@ -47,15 +48,19 @@ export default class NodeAmqpBroker {
     try {
       const c = this.config || {};
 
-      const conn = (this.conn = await amqplib.connect({
-        hostname: c.connection ? c.connection.host : 'localhost',
-        port: c.connection ? c.connection.port : 5672,
-        username: c.connection ? c.connection.username : 'guest',
-        password: c.connection ? c.connection.password : 'guest',
-        vhost: c.connection ? c.connection.vhost : '/'
-      }));
+      if (typeof c.connection === 'string') {
+        this.conn = await amqplib.connect(c.connection, c.socketOptions);
+      } else {
+        this.conn = await amqplib.connect({
+          hostname: c.connection?.host ?? 'localhost',
+          port: c.connection?.port ?? 5672,
+          username: c.connection?.username ?? 'guest',
+          password: c.connection?.password ?? 'guest',
+          vhost: c.connection?.vhost ?? '/'
+        });
+      }
 
-      return conn
+      return this.conn
     } catch (ex: any) {
       if (ex.code === 'ECONNREFUSED') {
         await timeout(700 * retry);

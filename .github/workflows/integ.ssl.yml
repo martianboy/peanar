@@ -1,0 +1,120 @@
+name: Integration Tests
+on: push
+
+jobs:
+  # Label of the container job
+  integration-tests-ssl-mode:
+    # Containers must run in Linux based operating systems
+    runs-on: ubuntu-latest
+
+    steps:
+      #-----------------------------------------------------------
+      # 1‑‑‑‑ Check out your code & set up Node
+      #-----------------------------------------------------------
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      #-----------------------------------------------------------
+      # 2‑‑‑‑ Generate a local CA + server cert / key
+      #-----------------------------------------------------------
+      - name: Generate self-signed certificates
+        run: |
+          set -euo pipefail
+          mkdir -p certs
+
+          # CA ───────────────────────────────────────────────────
+          openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout certs/ca.key \
+            -out    certs/ca.crt \
+            -days   1 \
+            -subj "/CN=Test-CA"
+
+          # Server key & CSR ────────────────────────────────────
+          openssl req -newkey rsa:2048 -nodes \
+            -keyout certs/server.key \
+            -out    certs/server.csr \
+            -subj "/CN=localhost"
+
+          # Sign the server cert with the CA ────────────────────
+          openssl x509 -req -in certs/server.csr \
+            -CA      certs/ca.crt -CAkey certs/ca.key -CAcreateserial \
+            -out     certs/server.crt \
+            -days    1
+
+          # For RabbitMQ the key file must be 0600
+          chmod 600 certs/server.key
+
+      #-----------------------------------------------------------
+      # 3‑‑‑‑ Write a minimal rabbitmq.conf that enables TLS only
+      #-----------------------------------------------------------
+      - name: Write rabbitmq.conf
+        run: |
+          cat > rabbitmq.conf <<'EOF'
+          ## disable plain AMQP
+          listeners.tcp = none
+
+          ## TLS listener on 5671
+          listeners.ssl.default = 5671
+
+          ssl_options.cacertfile           = /etc/rabbitmq/certs/ca.crt
+          ssl_options.certfile             = /etc/rabbitmq/certs/server.crt
+          ssl_options.keyfile              = /etc/rabbitmq/certs/server.key
+          ssl_options.verify               = verify_none
+          ssl_options.fail_if_no_peer_cert = false
+
+          ## (optional) secure the management UI on 15671
+          management.ssl.port       = 15671
+          management.ssl.cacertfile = /etc/rabbitmq/certs/ca.crt
+          management.ssl.certfile   = /etc/rabbitmq/certs/server.crt
+          management.ssl.keyfile    = /etc/rabbitmq/certs/server.key
+          EOF
+
+      #-----------------------------------------------------------
+      # 4‑‑‑‑ Launch RabbitMQ with the certs + config bind‑mounted
+      #-----------------------------------------------------------
+      - name: Start RabbitMQ (via Docker)
+        run: |
+          docker run -d --name rabbitmq \
+            -v "$PWD/certs":/etc/rabbitmq/certs:ro \
+            -v "$PWD/rabbitmq.conf":/etc/rabbitmq/rabbitmq.conf:ro \
+            -p 5671:5671 -p 15671:15671 -p 15672:15672 \
+            rabbitmq:3-management
+
+      #-----------------------------------------------------------
+      # 5‑‑‑‑ Wait until the broker is healthy
+      #-----------------------------------------------------------
+      - name: Wait for RabbitMQ to be ready
+        run: |
+          set -e
+          for i in {1..20}; do
+            if docker exec rabbitmq rabbitmq-diagnostics -q ping; then
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "RabbitMQ never became ready" && exit 1
+
+      #-----------------------------------------------------------
+      # 6‑‑‑‑ Install dependencies & run the test suite
+      #-----------------------------------------------------------
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run the test suite
+        env:
+          RABBITMQ_HOST: localhost          # inside the runner
+          RABBITMQ_PORT: 5671               # TLS listener
+          NODE_TLS_REJECT_UNAUTHORIZED: '0' # ignore the self‑signed CA (tests only!)
+        run: npm run test:e2e
+
+      #-----------------------------------------------------------
+      # 7‑‑‑‑ (optional) Show logs if the job failed
+      #-----------------------------------------------------------
+      - name: Print RabbitMQ logs on failure
+        if: failure()
+        run: docker logs rabbitmq
