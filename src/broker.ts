@@ -6,10 +6,10 @@ import amqplib, { ChannelModel, ConsumeMessage, Replies, Channel } from 'amqplib
 import { ChannelPool } from './pool';
 import { PeanarAdapterError } from './exceptions';
 import {
-  IBasicProperties,
   IBinding,
   IConnectionParams,
   IExchange,
+  IMessage,
   IQueue
 } from './types';
 import Consumer from './consumer';
@@ -18,15 +18,6 @@ interface IBrokerOptions {
   connection?: IConnectionParams;
   poolSize: number;
   prefetch?: number;
-}
-
-interface IMessage<B = Buffer> {
-  exchange?: string;
-  routing_key: string;
-  mandatory?: boolean;
-  immediate?: boolean;
-  properties?: IBasicProperties;
-  body?: B;
 }
 
 function timeout(ms: number) {
