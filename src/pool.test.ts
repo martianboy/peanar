@@ -84,6 +84,22 @@ describe('ChannelPool', () => {
       expect(closingSpy.calledOnce).to.be.true;
       expect(closeSpy.calledOnce).to.be.true;
     });
+
+    it('close() succeeds even if an in-flight channel emits an error', async () => {
+      const { conn } = createFakeConn();
+      const pool = new ChannelPool(conn, 1);
+      await pool.open();
+
+      const acquired = await pool.acquire(); // take the only channel
+      const closePromise = pool.close();     // should block until released
+
+      // simulate channel error
+      acquired.channel.close();
+      expect(pool.isOpen).to.be.true;
+
+      await closePromise;             // close should finish
+      expect(pool.isOpen).to.be.false;
+    });
   });
 
   describe('acquire() / release()', () => {
@@ -165,6 +181,26 @@ describe('ChannelPool', () => {
       ch.emit('error', err);
 
       expect(lostSpy.calledOnceWithExactly(ch, err)).to.be.true;
+    });
+
+    it('emits "error" on channel open error', async () => {
+      const { conn, createChannelSpy } = createFakeConn();
+      const pool = new ChannelPool(conn, 1);
+      await pool.open();
+
+      const err = new Error('boom');
+      createChannelSpy.resetHistory();
+      createChannelSpy.rejects(err); // simulate error on channel open
+
+      const errorSpy = sinon.spy();
+      pool.on('error', errorSpy);
+
+      (pool as any)._pool[0].close(); // simulate channel close
+      await new Promise(r => setImmediate(r)); // give dispatch loop a tick
+
+      expect(createChannelSpy.calledOnce).to.be.true;
+      expect(errorSpy.calledOnceWithExactly(err)).to.be.true;
+      expect(pool.isOpen).to.be.false; // pool should be closed
     });
 
     it('replaces dead channels on error', async () => {
