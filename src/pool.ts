@@ -187,6 +187,7 @@ export class ChannelPool extends EventEmitter {
         this.emit('channelReplaced', ch, newCh);
       } catch (ex) {
         debug('failed to open a new channel to replace a lost one. transitioning to closed state!', ex);
+        this.emit('error', ex);
         return this.softCleanUp();
       }
 

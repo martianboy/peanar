@@ -161,6 +161,9 @@ export default class NodeAmqpBroker {
           console.error(ex);
         });
       });
+      this.pool.on('error', (ex) => {
+        console.error('Pool error:', ex);
+      });
 
       // FIXME: seems unused; remove?
       conn.on('error', ex => {
