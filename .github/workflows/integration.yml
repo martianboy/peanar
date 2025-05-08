@@ -3,7 +3,11 @@ on: push
 
 jobs:
   # Label of the container job
-  integration-tests-ssl-mode:
+  integration-tests:
+    strategy:
+      matrix:
+        sslmode: ["nossl", "ssl"]
+
     # Containers must run in Linux based operating systems
     runs-on: ubuntu-latest
 
@@ -23,6 +27,7 @@ jobs:
       # 2‑‑‑‑ Generate a local CA + server cert / key
       #-----------------------------------------------------------
       - name: Generate self-signed certificates
+        if: matrix.sslmode == 'ssl'
         run: |
           set -euo pipefail
           mkdir -p certs
@@ -58,6 +63,7 @@ jobs:
       # 3‑‑‑‑ Write a minimal rabbitmq.conf that enables TLS only
       #-----------------------------------------------------------
       - name: Write rabbitmq.conf
+        if: matrix.sslmode == 'ssl'
         run: |
           cat > rabbitmq.conf <<'EOF'
           ## disable plain AMQP
@@ -80,19 +86,32 @@ jobs:
           EOF
 
       #-----------------------------------------------------------
-      # 4‑‑‑‑ Launch RabbitMQ with the certs + config bind‑mounted
+      # 4a‑‑‑ Launch RabbitMQ with the certs + config bind‑mounted
       #-----------------------------------------------------------
-      - name: Start RabbitMQ (via Docker)
+      - name: Start RabbitMQ in SSL Mode (via Docker)
+        if: matrix.sslmode == 'ssl'
         run: |
           docker run -d --name rabbitmq \
             --user rabbitmq \
             -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
             -v "$PWD/certs":/etc/rabbitmq/certs:ro \
             -v "$PWD/rabbitmq.conf":/etc/rabbitmq/rabbitmq.conf:ro \
-            -p 5671:5671 -p 15671:15671 -p 15672:15672 \
+            -p 5671:5671 -p 15671:15671 \
             rabbitmq:3-management
           # cat /etc/rabbitmq/certs/server.key from inside the container
           docker exec rabbitmq ls -l /etc/rabbitmq/certs
+
+      #-----------------------------------------------------------
+      # 4b‑‑‑ Launch RabbitMQ without certs (plain AMQP)
+      #-----------------------------------------------------------
+      - name: Start RabbitMQ in NoSSL Mode (via Docker)
+        if: matrix.sslmode == 'nossl'
+        run: |
+          docker run -d --name rabbitmq \
+            --user rabbitmq \
+            -e RABBITMQ_ERLANG_COOKIE="your_secret_cookie" \
+            -p 5672:5672 -p 15672:15672 \
+            rabbitmq:3-management
 
       #-----------------------------------------------------------
       # 5‑‑‑‑ Wait until the broker is healthy
@@ -100,9 +119,17 @@ jobs:
       - name: Wait for RabbitMQ to be ready
         run: |
           set -e
+          if [ "${{ matrix.sslmode }}" = "ssl" ]; then
+            SCHEME="https"
+            PORT=15671
+          else
+            SCHEME="http"
+            PORT=15672
+          fi
+          # wait for RabbitMQ to be healthy
           for i in {1..5}; do
             if docker exec rabbitmq rabbitmq-diagnostics -q ping; then
-              if curl -vkI "https://localhost:15671/api/auth"; then
+              if curl -kI "${SCHEME}://localhost:${PORT}/api/auth"; then
                 echo "RabbitMQ is ready"
                 exit 0
               fi
@@ -120,9 +147,9 @@ jobs:
       - name: Run the test suite
         env:
           RABBITMQ_HOST: localhost          # inside the runner
-          RABBITMQ_PORT: 5671               # TLS listener
-          RABBITMQ_MANAGEMENT_PORT: 15671   # TLS management UI
-          RABBITMQ_SSL_MODE: 'true'              # enable TLS
+          RABBITMQ_PORT: ${{ matrix.sslmode == 'ssl' && 5671 || 5672 }}
+          RABBITMQ_MANAGEMENT_PORT: ${{ matrix.sslmode == 'ssl' && 15671 || 15672 }}
+          RABBITMQ_SSL_MODE: ${{ matrix.sslmode == 'ssl' && 'true' || 'false' }}
           NODE_TLS_REJECT_UNAUTHORIZED: '0' # ignore the self‑signed CA (tests only!)
         run: npm run test:e2e
 
