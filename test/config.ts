@@ -1,3 +1,5 @@
+import { IConnectionParams } from "../src/types";
+
 export const brokerOptions = {
   connection: {
     host: process.env.RABBITMQ_HOST ?? '127.0.0.1',
@@ -10,6 +12,6 @@ export const brokerOptions = {
     maxRetries: 10,
     retryDelay: 1000,
     locale: 'en-US'
-  },
+  } as IConnectionParams,
   poolSize: 1
 };
