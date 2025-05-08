@@ -38,7 +38,7 @@ import PeanarApp from 'peanar';
 
 const app = new PeanarApp({
   connection: {
-    hostname: 'localhost',
+    host: 'localhost',
     username: 'guest',
     password: 'guest',
   },
@@ -90,11 +90,11 @@ On the web server:
 ```ts
 import PeanarApp from 'peanar';
 
-const app = new PeanarApp({
+const peanar = new PeanarApp({
   connection: 'amqp://localhost',
 });
 
-const sendEmail = app.job({
+const sendEmail = peanar.job({
   name: 'sendEmail',
   queue: 'mailer',
   // importantly, the publisher doesn't need to know about the handler implementation, only its signature
@@ -121,11 +121,11 @@ On the worker:
 import PeanarApp from 'peanar';
 import { EmailService } from './email-service';
 
-const app = new PeanarApp({
+const peanar = new PeanarApp({
   connection: 'amqp://localhost',
 });
 
-const sendEmail = app.job({
+const sendEmail = peanar.job({
   name: 'sendEmail',
   queue: 'mailer',
 
@@ -138,10 +138,10 @@ const sendEmail = app.job({
 });
 
 // create AMQP resources
-await app.declareAmqResources();
+await peanar.declareAmqResources();
 
 // start workers
-await app.worker({
+await peanar.worker({
   queues: ['mailer'],
   concurrency: 3, // 3 consumers on the queue, will process 3 jobs in parallel
   prefetch: 1,
