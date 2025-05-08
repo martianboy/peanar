@@ -52,6 +52,7 @@ export default class NodeAmqpBroker {
         this.conn = await amqplib.connect(c.connection, c.socketOptions);
       } else {
         this.conn = await amqplib.connect({
+          protocol: c.connection?.protocol ?? 'amqp',
           hostname: c.connection?.host ?? 'localhost',
           port: c.connection?.port ?? 5672,
           username: c.connection?.username ?? 'guest',
