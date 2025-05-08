@@ -3,8 +3,8 @@
 > A batteries‑included yet lightweight library for running background jobs and distributed task queues in Node.js & TypeScript, powered by RabbitMQ.
 
 \[[![npm version](https://img.shields.io/npm/v/peanar.svg)](https://www.npmjs.com/package/peanar)]
-\[[![Integration Tests](https://github.com/martianboy/peanar/actions/workflows/e2e.yml/badge.svg)](https://github.com/martianboy/peanar/actions)]
-\[[![Unit Tests](https://github.com/martianboy/peanar/actions/workflows/unit-test.yml/badge.svg)](https://github.com/martianboy/peanar/actions)]
+\[[![Integration Tests](https://github.com/martianboy/peanar/actions/workflows/integration.yml/badge.svg)](https://github.com/martianboy/peanar/actions)]
+\[[![Unit Tests](https://github.com/martianboy/peanar/actions/workflows/unit.yml/badge.svg)](https://github.com/martianboy/peanar/actions)]
 
 ---
 
@@ -171,11 +171,30 @@ Create an application instance.
 
 | Option       | Type                                                                            | Default       | Purpose                                 |                              |
 | ------------ | ------------------------------------------------------------------------------- | ------------- | --------------------------------------- | ---------------------------- |
-| `connection` | [`IConnectionParams`](https://github.com/amqp-ts/amqp-ts#connection-parameters) | string        | `amqp://localhost`                      | RabbitMQ connection settings |
+| `connection` | `IConnectionParams` | string        | `amqp://localhost`                      | RabbitMQ connection settings |
 | `poolSize`   | `number`                                                                        | `2`           | Channels kept in the internal pool      |                              |
 | `prefetch`   | `number`                                                                        | `1`           | Basic.qos prefetch for every consumer   |                              |
 | `jobClass`   | `typeof PeanarJob`                                                              | `PeanarJob`   | Override the runtime job implementation |                              |
 | `logger`     | `(...args: any[]) => void`                                                      | `console.log` | Inject custom logging                   |                              |
+
+
+##### `definition` (interface `IConnectionParams`)
+
+| Field           | Type       | Description                                        |
+| --------------- | ---------- | -------------------------------------------------- |
+| maxRetries      | number     | How many times to retry on connection failure.     |
+| retryDelay      | number     | Wait before retrying a failed connection.          |
+| protocol?       | `'amqp'` OR `'amqps'`     | SSL or not.                             |
+| host            | string     | Hostname or IP address of the RabbitMQ server.     |
+| port            | number     | Port of the RabbitMQ server.                       |
+| username        | string     | Username for authentication.                       |
+| password        | string     | Password for authentication.                       |
+| locale          | string     | Locale for the connection.                         |
+| heartbeat       | number     | Heartbeat interval in seconds.                     |
+| keepAlive?      | boolean    | Enable TCP keepalive.                              |
+| keepAliveDelay? | number     | Delay between keepalive probes.                    |
+| timeout?        | number     | Timeout for the connection in milliseconds.        |
+| vhost           | string     | Virtual host to connect to.                        |
 
 ---
 

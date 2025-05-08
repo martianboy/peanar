@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import { setTimeout as timeout } from 'timers/promises';
 import { once } from 'events';
 import { rejects } from 'assert';
@@ -6,7 +5,7 @@ import { rejects } from 'assert';
 import sinon from 'sinon';
 import { expect } from 'chai';
 import amqplib, { ChannelModel } from 'amqplib';
-import { IMessage } from '../src/types';
+import { IConnectionParams, IMessage } from '../src/types';
 
 import { brokerOptions } from './config';
 import Broker from '../src/broker';
@@ -34,23 +33,30 @@ class TestBroker extends Broker {
     return this._channelConsumers;
   }
 
+  get connectionOptions(): IConnectionParams {
+    if (typeof this.config?.connection !== 'object') {
+      throw new Error('Connection options are not set');
+    }
+    return this.config?.connection;
+  }
+
   set port(port: number) {
-    this.config!.connection!.port = port;
+    this.connectionOptions.port = port;
   }
   set retryDelay(retryDelay: number) {
-    this.config!.connection!.retryDelay = retryDelay;
+    this.connectionOptions.retryDelay = retryDelay;
   }
   set maxRetries(maxRetries: number) {
-    this.config!.connection!.maxRetries = maxRetries;
+    this.connectionOptions.maxRetries = maxRetries;
   }
   set username(username: string) {
-    this.config!.connection!.username = username;
+    this.connectionOptions.username = username;
   }
   set password(password: string) {
-    this.config!.connection!.password = password;
+    this.connectionOptions.password = password;
   }
   set vhost(vhost: string) {
-    this.config!.connection!.vhost = vhost;
+    this.connectionOptions.vhost = vhost;
   }
 }
 

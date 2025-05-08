@@ -1,8 +1,11 @@
-import PeanarApp = require('../src');
+import PeanarApp from '../src';
 
 function dummy() {
   return new Promise((resolve, reject) => {
-    setTimeout(resolve, 4000);
+    setTimeout(() => {
+      console.log('dummy job done');
+      resolve('done');
+    }, 4000);
   });
 }
 
