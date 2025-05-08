@@ -2,6 +2,7 @@ export const brokerOptions = {
   connection: {
     host: process.env.RABBITMQ_HOST ?? '127.0.0.1',
     port: parseInt(process.env.RABBITMQ_PORT ?? '5672'),
+    protocol: process.env.RABBITMQ_SSL_MODE === 'true' ? 'amqps' : 'amqp',
     username: 'guest',
     password: 'guest',
     vhost: '/',

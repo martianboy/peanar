@@ -115,7 +115,7 @@ export interface IPeanarOptions {
 export interface IConnectionParams {
   maxRetries: number;
   retryDelay: number;
-  protocol: 'amqp' | 'amqps';
+  protocol?: 'amqp' | 'amqps';
   host: string;
   port: number;
   username: string;
