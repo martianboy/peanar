@@ -4,7 +4,7 @@ import { rejects } from 'assert';
 
 import sinon from 'sinon';
 import { expect } from 'chai';
-import amqplib, { ChannelModel } from 'amqplib';
+import amqplib, { Channel, ChannelModel } from 'amqplib';
 import { IConnectionParams, IMessage } from '../src/types';
 
 import { brokerOptions } from './config';
@@ -402,6 +402,34 @@ describe('Broker', () => {
 
       expect(consumerCount).to.be.eq(3);
       await Promise.all(consumers.map(c => c.consumer.cancel()));
+    });
+
+    it('handles client cancellation', async function() {
+      const consumer = await broker.consume(q1);
+      const canceledPromise = once(consumer, 'cancel');
+
+      // Cancel the consumer
+      await consumer.cancel();
+
+      const [{ server }] = await canceledPromise;
+      expect(server).to.be.false;
+
+      expect(broker.channelConsumers.size).to.eq(1);
+      expect(broker.channelConsumers.get(consumer.channel as Channel)).to.be.empty;
+    });
+
+    it('handles server cancellation', async function() {
+      const consumer = await broker.consume(q1);
+      const canceledPromise = once(consumer, 'cancel');
+
+      // Cause a server-initiated cancellation
+      await broker.pool!.acquireAndRun(ch => ch.deleteQueue(q1));
+
+      const [{ server }] = await canceledPromise;
+      expect(server).to.be.true;
+
+      expect(broker.channelConsumers.size).to.eq(1);
+      expect(broker.channelConsumers.get(consumer.channel as Channel)).to.be.empty;
     });
   });
 
