@@ -18,10 +18,7 @@ describe('Pool', () => {
   before(async () => {
     await createVhost(vhost);
     conn = await amqplib.connect({
-      hostname: brokerOptions.connection.host,
-      port: brokerOptions.connection.port,
-      username: brokerOptions.connection.username,
-      password: brokerOptions.connection.password,
+      ...brokerOptions.connection,
       vhost,
     });
 
