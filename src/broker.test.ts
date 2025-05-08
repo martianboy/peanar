@@ -241,5 +241,21 @@ describe('NodeAmqpBroker', () => {
       expect((broker as any)._channelConsumers.get(newChannel)).to.include(consumer);
       expect((broker as any)._channelConsumers.get(mockChannel)).to.be.undefined;
     });
+
+    it('should skip rewiring if the channel does not start a consumer', async () => {
+      await broker.connect();
+      const consumer = await broker.consume('test-queue');
+      const newChannel = createMockChannel(6);
+      const oldChannel = consumer.channel;
+
+      // Simulate a channel that does not start a consumer
+      newChannel.consume.rejects(new Error('Consumer not started'));
+
+      broker.pool!.emit('channelReplaced', oldChannel, newChannel);
+      await new Promise(r => setImmediate(r));   // give dispatch loop a tick
+
+      sinon.assert.calledOnce(newChannel.consume);
+      expect((broker as any)._channelConsumers.get(newChannel)).to.be.empty;
+    });
   });
 });

@@ -224,6 +224,26 @@ export default class NodeAmqpBroker {
     }
   }
 
+  private async startConsumer(ch: Channel, consumer: Consumer) {
+    const res = await ch.consume(consumer.queue, (msg: ConsumeMessage | null) => {
+      if (msg) {
+        consumer.handleDelivery(msg);
+      } else {
+        consumer.handleCancel(true);
+      }
+    });
+
+    consumer.tag = res.consumerTag;
+    consumer.channel = ch;
+
+    // clear any previous cancel event handler, since this consumer might have
+    // been rewired to a new channel
+    consumer.removeAllListeners('cancel');
+    consumer.once('cancel', () => {
+      this._channelConsumers.get(ch)?.delete(consumer);
+    });
+  }
+
   /**
    * Recreates consumers on a new channel in the same way as the old one
    * @todo properly handle errors, e.g. if the channel is closed when we try to consume (#67)
@@ -233,47 +253,37 @@ export default class NodeAmqpBroker {
     if (!set || set.size < 1) return;
 
     for (const consumer of set) {
-      // FIXME (#67): handle potential errors
-      const res = await newCh.consume(consumer.queue, (msg: ConsumeMessage | null) => {
-        if (msg && consumer) {
-          consumer.handleDelivery(msg);
-        }
-      });
-
-      consumer.tag = res.consumerTag;
-      consumer.channel = newCh;
-      consumer.resume();
+      try {
+        await this.startConsumer(newCh, consumer);
+        consumer.resume();
+      } catch (ex: any) {
+        set.delete(consumer);
+        debug('Failed to rewire consumer', { queue: consumer.queue, reason: ex });
+      }
     }
 
     this._channelConsumers.delete(ch);
     this._channelConsumers.set(newCh, set);
   }
 
-  private async _startConsumer(ch: Channel, queue: string): Promise<Consumer> {
+  private async createConsumer(ch: Channel, queue: string): Promise<Consumer> {
     let consumer = new Consumer(ch, queue);
+    await this.startConsumer(ch, consumer);
 
-    return await ch.consume(queue, (msg: ConsumeMessage | null) => {
-      if (msg) {
-        consumer.handleDelivery(msg);
-      }
-    }).then((res: Replies.Consume) => {
-      consumer.tag = res.consumerTag;
+    if (!this._channelConsumers.has(ch)) {
+      this._channelConsumers.set(ch, new Set([consumer]));
+    } else {
+      const set = this._channelConsumers.get(ch);
+      set!.add(consumer);
+    }
 
-      if (!this._channelConsumers.has(ch)) {
-        this._channelConsumers.set(ch, new Set([consumer]));
-      } else {
-        const set = this._channelConsumers.get(ch);
-        set!.add(consumer);
-      }
-
-      return consumer;
-    });
+    return consumer;
   }
 
   public consume(queue: string): PromiseLike<Consumer> {
     if (!this.pool) throw new PeanarAdapterError('Not connected!');
 
-    return this.pool.acquireAndRun(async ch => this._startConsumer(ch, queue));
+    return this.pool.acquireAndRun(async ch => this.createConsumer(ch, queue));
   }
 
   public consumeOver(queues: string[]) {
@@ -283,7 +293,7 @@ export default class NodeAmqpBroker {
       return {
         queue,
         channel: ch,
-        consumer: await this._startConsumer(ch, queue)
+        consumer: await this.createConsumer(ch, queue)
       };
     });
   }
