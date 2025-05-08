@@ -3,8 +3,8 @@
 > A batteries‑included yet lightweight library for running background jobs and distributed task queues in Node.js & TypeScript, powered by RabbitMQ.
 
 \[[![npm version](https://img.shields.io/npm/v/peanar.svg)](https://www.npmjs.com/package/peanar)]
-\[[![Integration Tests](https://github.com/martianboy/peanar/actions/workflows/e2e.yml/badge.svg)](https://github.com/martianboy/peanar/actions)]
-\[[![Unit Tests](https://github.com/martianboy/peanar/actions/workflows/unit-test.yml/badge.svg)](https://github.com/martianboy/peanar/actions)]
+\[[![Integration Tests](https://github.com/martianboy/peanar/actions/workflows/integration.yml/badge.svg)](https://github.com/martianboy/peanar/actions)]
+\[[![Unit Tests](https://github.com/martianboy/peanar/actions/workflows/unit.yml/badge.svg)](https://github.com/martianboy/peanar/actions)]
 
 ---
 
